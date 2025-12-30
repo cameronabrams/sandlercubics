@@ -133,4 +133,4 @@ def cli():
         my_list = ', '.join(list(subcommands.keys()))
         print(f'No subcommand found. Expected one of {my_list}')
     if args.banner:
-        print('Thanks for using sandlerprops!')
+        print('Thanks for using sandlercubics!')

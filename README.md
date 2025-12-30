@@ -1,4 +1,4 @@
-# Sandlersteam
+# Sandlercubics
 
 > Digitized cubic equations of state from Sandler's 5th ed.
 
@@ -8,7 +8,7 @@ Currently only the generalized vdW and generalized Peng-Robison equations for pu
 
 ## Installation 
 
-Sandlersteam is available via `pip`:
+sandlercubics is available via `pip`:
 
 ```sh
 pip install sandlercubics
@@ -27,7 +27,7 @@ At T=400.0 K and P=0.5 MPa, the molar volume is 0.0066279 m^3/mol
 
 ### API
 
-Below we create a `PengRobinsonEOS` object to reproduce the above calculation
+Below we create a `PengRobinsonEOS` object to reproduce the above calculation:
 
 ```python
 >>> from sandlercubics.eos import PengRobsinsonEOS
@@ -43,6 +43,8 @@ Below we create a `PengRobinsonEOS` object to reproduce the above calculation
 
 ## Release History
 
+* 0.1.1
+    * fixed erroneous thank-you message
 * 0.1.0
     * Initial version, implements vdw and PengRobinson
 
@@ -56,7 +58,7 @@ Distributed under the MIT license. See ``LICENSE`` for more information.
 
 ## Contributing
 
-1. Fork it (<https://github.com/cameronabrams/sandlersteam/fork>)
+1. Fork it (<https://github.com/cameronabrams/sandlercubics/fork>)
 2. Create your feature branch (`git checkout -b feature/fooBar`)
 3. Commit your changes (`git commit -am 'Add some fooBar'`)
 4. Push to the branch (`git push origin feature/fooBar`)
