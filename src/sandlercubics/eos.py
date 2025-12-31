@@ -151,8 +151,8 @@ class CubicEOS(ABC):
         self.unit_consistency(other)
         return (other.Pv - self.Pv) * self.R / self.R_pv
     
-    def DeltaU(self, other: CubicEOS):
-        return self.DeltaH(other) - self.DeltaPV(other)
+    def DeltaU(self, other: CubicEOS, Cp: float | list[float] | dict [str, float]):
+        return self.DeltaH(other, Cp) - self.DeltaPV(other)
     
 @dataclass
 class IdealGasEOS(CubicEOS):
