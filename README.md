@@ -87,6 +87,8 @@ Below we create a `PengRobinsonEOS` object to reproduce the above calculation:
 
 ## Release History
 
+* 0.2.1
+    * redefined `CubicEOS` abstract class
 * 0.2.0
     * uses `StateReporter`
     * `delta` subcommand implemented

@@ -4,7 +4,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 [project]
 name = "sandlercubics"
-version = "0.2.0"
+version = "0.2.1"
 authors = [
   { name="Cameron F Abrams", email="cfa22@drexel.edu" },
 ]
