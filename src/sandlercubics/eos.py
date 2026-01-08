@@ -48,11 +48,33 @@ class CubicEOS(ABC):
     maxiter: int = 100
     """ maximum iterations in phase calculations """
     epsilon: float = 1.e-5
-    """ fugacity tolerance in phase calculations """
+    """ fugacity tolerance in phase calculations (Fig. 7.5-1 in Sandler 5th ed) """
     iter: int = 0
     """ iteration counter in phase calculations """
     err: float = 0.0
     """ current error in phase calculations """
+
+    Tref: float = 298.15
+    """ reference temperature for 'absolute' internal energy, enthalpy,
+    and entropy calculations """
+
+    def clone(self) -> CubicEOS:
+        """ Return a copy of the current EOS object """
+        return type(self)(
+            pressure_unit=self.pressure_unit,
+            volume_unit=self.volume_unit,
+            temperature_unit=self.temperature_unit,
+            phase=self.phase,
+            P=self.P,
+            T=self.T,
+            Pc=self.Pc,
+            Tc=self.Tc,
+            omega=self.omega,
+            logiter=self.logiter,
+            maxiter=self.maxiter,
+            epsilon=self.epsilon,
+            Tref=self.Tref
+        )
 
     @property
     def Pv(self):
@@ -87,19 +109,20 @@ class CubicEOS(ABC):
     
     @property
     def A(self):
-        """ dimensionless vdW 'a' parameter """
+        """ dimensionless vdW 'a' parameter aP/(R^2 T^2) """
         return self.a * self.P / (self.R * self.T)**2
     
     @property
     def B(self):
-        """ dimensionelss vdW 'b' parameter """
+        """ dimensionless vdW 'b' parameter bP/(RT) """
         return self.b * self.P / (self.R * self.T)
     
     @property
-    def cubic_coeff(self): # default for vdw eos
-        """ coefficients of cubic equation of state in Z in descending order """ 
-        return np.array([1, -1 - self.B, self.A, -self.A * self.B])
-    
+    @abstractmethod
+    def cubic_coeff(self):
+        """ coefficients of cubic equation for compressibility factor Z """
+        pass
+
     @property
     def Z(self):
         """ Compressibility factor from solution of cubic.  Phase requirement enforced if set. """
@@ -122,19 +145,22 @@ class CubicEOS(ABC):
         return self.Z * self.R_pv * self.T / self. P
 
     @property
+    @abstractmethod
     def h_departure(self):
-        """ Enthalpy departure at state T and P; ideal-gas value by default """
-        return 0.0
+        """ Enthalpy departure at state T and P """
+        pass
 
     @property
+    @abstractmethod
     def s_departure(self):
-        """ Entropy departure at state T and P; ideal-gas value by default """
-        return 0.0
+        """ Entropy departure at state T and P """
+        pass
     
     @property
+    @abstractmethod
     def logphi(self):
-        """ natural log of fugacity coefficient at state T and P; ideal-gas value by default """
-        return 0.0
+        """ natural log of fugacity coefficient at state T and P """
+        pass
     
     @property
     def phi(self): # fugacity coefficient(s)
@@ -147,7 +173,10 @@ class CubicEOS(ABC):
 
     @property
     def Pvap(self):
-        """ Vapor pressure at current state temperature.  Current state pressure is retained. """
+        """ 
+        Vapor pressure at current state temperature.  Current state pressure is retained. 
+        Implements algorithm in Fig. 7.5-1 of Sandler 5th ed.
+        """
         saveP = self.P
         self.P = self.Pc * (self.T / self.Tc)**8
         keepgoing = True
@@ -160,7 +189,7 @@ class CubicEOS(ABC):
                 self.P = saveP
                 return None
             self.err = np.abs(fL / fV - 1)
-            if self.logiter: logger.debug(f'Iter {self.iter}: P {self.P:.6f}, fV {fV:.6f}, fL {fL:.6f}; error {self.err:.4e}')
+            if self.logiter: logger.debug(f'Pvap: Iter {self.iter}: P {self.P:.6f}, fV {fV:.6f}, fL {fL:.6f}; error {self.err:.4e}')
             self.P *= fL / fV
             if self.err < self.epsilon or self.iter == self.maxiter:
                 keepgoing = False
@@ -170,6 +199,20 @@ class CubicEOS(ABC):
         self.P = saveP
         return Pvap
     
+    @property
+    def Hvap(self):
+        """ Heat of vaporization at current state temperature """
+        satd_clone = self.clone()
+        satd_clone.P = self.Pvap
+        return satd_clone.h_departure[0] - satd_clone.h_departure[1]
+
+    @property
+    def Svap(self):
+        """ Entropy of vaporization at current state temperature """
+        satd_clone = self.clone()
+        satd_clone.P = self.Pvap
+        return satd_clone.s_departure[0] - satd_clone.s_departure[1]
+
     @property
     def Tsat(self):
         """ Saturation temperature at state pressure.  Current state temperature is retained. """
@@ -185,8 +228,8 @@ class CubicEOS(ABC):
                 self.T = saveT
                 return None
             self.err = np.abs(fV / fL - 1)
-            if self.logiter: logger.debug(f'Iter {self.iter}: T {self.T:.6f}, fV {fV:.6f}, fL {fL:.6f}; error {self.err:.4e}')
-            self.T *= (fV / fL)**(1/4)
+            if self.logiter: logger.debug(f'Tsat: Iter {self.iter}: T {self.T:.6f}, fV {fV:.6f}, fL {fL:.6f}; error {self.err:.4e}')
+            self.T *= (fV / fL)**0.125
             if self.err < self.epsilon or self.iter == self.maxiter:
                 keepgoing = False
             if self.iter >= self.maxiter:
@@ -247,14 +290,29 @@ class IdealGasEOS(CubicEOS):
         return 0.0
     
     @property
+    def cubic_coeff(self):
+        """ cubic coefficients for ideal gas """
+        return np.array([0.0, 0.0, 1.0, -1.0])
+
+    @property
     def Z(self):
         """ compressibility factor for ideal gas is unity """
         return 1.0
     
     @property
-    def f(self):
-        """ fugacity for ideal gas is equal to state pressure """
-        return self.P
+    def h_departure(self):
+        """ Enthalpy departure at state T and P; ideal-gas value """
+        return 0.0
+
+    @property
+    def s_departure(self):
+        """ Entropy departure at state T and P; ideal-gas value """
+        return 0.0
+    
+    @property
+    def logphi(self):
+        """ natural log of fugacity coefficient at state T and P; ideal-gas value """
+        return 0.0
 
 @dataclass
 class GeneralizedVDWEOS(CubicEOS):
@@ -337,27 +395,58 @@ class PengRobinsonEOS(CubicEOS):
         z = self.Z
         return z - 1 - np.log(z - self.B) - self.A / (2 * np.sqrt(2) * self.B) * self.lrfrac
 
-# @dataclass
-# class SoaveRedlichKwongEOS(CubicEOS):
-#     """
-#     Pure-component Soave-Redlich-Kwong equation of state; watting for time to derive departures and fugacity coefficients
-#     """
-#     @property
-#     def kappa(self):
-#         return 0.480 + 1.574 * self.omega - 0.176 * self.omega**2
+@dataclass
+class SoaveRedlichKwongEOS(CubicEOS):
+    """
+    Pure-component Soave-Redlich-Kwong equation of state (Eq. 6.4-1 in Sandler 5th ed)
+    """
+    @property
+    def kappa(self):
+        return 0.480 + 1.574 * self.omega - 0.176 * self.omega**2
     
-#     @property
-#     def alpha(self):
-#         return (1 + self.kappa * (1 - np.sqrt(self.T/self.Tc)))**2
+    @property
+    def alpha(self):
+        return (1 + self.kappa * (1 - np.sqrt(self.T/self.Tc)))**2
 
-#     @property
-#     def a(self):
-#         return 0.42748 * self.R**2 * self.Tc**2 / self.Pc * self.alpha
+    @property
+    def a(self):
+        return 0.42748 * self.R**2 * self.Tc**2 / self.Pc * self.alpha
     
-#     @property
-#     def b(self):
-#         return 0.08664 * self.R * self.Tc / self.Pc
+    @property
+    def b(self):
+        return 0.08664 * self.R * self.Tc / self.Pc
 
-#     @property
-#     def coeff(self):
-#         return np.array([1.0, -1.0, self.A - self.B - self.B**2, -self.A * self.B])
+    @property
+    def cubic_coeff(self):
+        return np.array([1.0, -1.0, self.A - self.B - self.B**2, -self.A * self.B])
+
+    @property
+    def lrfrac(self):
+        z = self.Z
+        num_arg = z + self.B
+        den_arg = z
+        return np.log(num_arg / den_arg)
+    
+    @property
+    def h_departure(self):
+        """
+        Enthalpy departure at state T and P (from solution to problem 6.36 in Sandler 5th ed)
+        """
+        z = self.Z
+        return self.R * self.T * (z - 1) + (self.T * self.da_dT - self.a) / self.b * self.lrfrac
+
+    @property
+    def s_departure(self):
+        """
+        Entropy departure at state T and P (from solution to problem 6.36 in Sandler 5th ed)
+        """
+        z = self.Z
+        return self.R * np.log(z - self.B) + self.da_dT/self.b * self.lrfrac
+
+    @property
+    def logphi(self):
+        """
+        natural log of fugacity coefficient at state T and P (from solution to problem 7.46 in Sandler 5th ed)
+        """
+        z = self.Z
+        return z - 1 - np.log(z - self.B) - self.a / (self.R * self.T * self.b) * self.lrfrac

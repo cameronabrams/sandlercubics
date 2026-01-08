@@ -71,7 +71,7 @@ CpD   = -1.132e-08 J/mol-K^4
 ```
 ### API
 
-Below we create a `PengRobinsonEOS` object to reproduce the above calculation:
+Below we create a `PengRobinsonEOS` object to reproduce the first calculation:
 
 ```python
 >>> from sandlercubics.eos import PengRobsinsonEOS
@@ -86,7 +86,12 @@ Below we create a `PengRobinsonEOS` object to reproduce the above calculation:
 ```
 
 ## Release History
-
+* 0.5.0
+    * Output of two-phase saturated states allowed
+* 0.4.0
+    * Heat and entropy of vaporization properties added
+* 0.3.0
+    * Soave-Redlich-Kwong equation implemented
 * 0.2.1
     * redefined `CubicEOS` abstract class
 * 0.2.0

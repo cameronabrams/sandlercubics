@@ -3,7 +3,9 @@ from .eos import *
 
 from sandlerprops.properties import PropertiesDatabase
 from sandlermisc.statereporter import StateReporter
-
+from importlib.metadata import version
+import os
+import sys
 import argparse as ap
 banner = """
  __                 _ _           
@@ -15,27 +17,71 @@ _\ \ (_| | | | | (_| | |  __/ |
      ___ _   _| |__ (_) ___ ___   
     / __| | | | '_ \| |/ __/ __|  
    | (__| |_| | |_) | | (__\__ \  
-    \___|\__,_|_.__/|_|\___|___/  
+    \___|\__,_|_.__/|_|\___|___/  v""" + version("sandlercubics") + """
 
 (c) 2025, Cameron F. Abrams <cfa22@drexel.edu>
 """
+
+class ConditionalBannerFormatter(ap.RawDescriptionHelpFormatter):
+    def format_help(self):
+        help_text = super().format_help()
+        
+        # Split to extract parts
+        parts = help_text.split('\n\n', 2)
+        
+        if len(parts) >= 2:
+            usage = parts[0]  # "usage: ..."
+            description = parts[1]
+            rest = parts[2] if len(parts) > 2 else ''
+            
+            # Rearrange: banner + description + usage + rest
+            result = []
+            if '--no-banner' not in sys.argv:
+                result.append(banner)
+            result.extend([description, usage, rest])
+            return '\n\n'.join(result)
+        
+        # Fallback
+        if '--no-banner' not in sys.argv:
+            return banner + '\n' + help_text
+        return help_text
+
+
 def reporters(eos: CubicEOS, eos_type: str, Cp: float | list[float] | dict [str, float] = None) -> str:
     result = StateReporter({})
     result.add_property('EOS', eos_type)
-    result.add_property('T', eos.T, 'K', fstring="{:.2f}")
-    result.add_property('P', eos.P, 'MPa', fstring="{:.2f}")
+    result.add_property('T', eos.T, eos.temperature_unit, fstring="{:.2f}")
+    result.add_property('P', eos.P, eos.pressure_unit, fstring="{:.2f}")
     if eos_type != 'ideal':
-        result.add_property('Z', eos.Z, '', fstring="{:.2f}")
-    result.add_property('v', eos.v, f'{eos.volume_unit}/mol', fstring="{:.6f}")
+        if hasattr(eos.Z, '__len__'):
+            result.add_property('Z (roots)', ', '.join([f"{z:.4f}" for z in eos.Z]), '', fstring=None)
+        else:
+            result.add_property('Z', eos.Z, '', fstring="{:.4f}")
+    if hasattr(eos.v, '__len__'):
+        result.add_property('v (roots)', ', '.join([f"{vol:.6f}" for vol in eos.v]), f'{eos.volume_unit}/mol', fstring=None)
+    else:
+        result.add_property('v', eos.v, f'{eos.volume_unit}/mol', fstring="{:.6f}")
     if eos_type != 'ideal':
-        result.add_property('Hdep', eos.h_departure, 'J/mol', fstring="{:.2f}")
-        result.add_property('Sdep', eos.s_departure, 'J/mol-K', fstring="{:.2f}")
+        if hasattr(eos.h_departure, '__len__'):
+            result.add_property('Hdep (roots)', ', '.join([f"{hdep:.2f}" for hdep in eos.h_departure]), 'J/mol', fstring=None)
+        else:
+            result.add_property('Hdep', eos.h_departure, 'J/mol', fstring="{:.2f}")
+        if hasattr(eos.s_departure, '__len__'):
+            result.add_property('Sdep (roots)', ', '.join([f"{sdep:.2f}" for sdep in eos.s_departure]), 'J/mol-K', fstring=None)
+        else:
+            result.add_property('Sdep', eos.s_departure, 'J/mol-K', fstring="{:.2f}")
     prop = StateReporter({})
     if eos_type != 'ideal':
         prop.add_property('Tc', eos.Tc, 'K', fstring="{:.2f}")
         prop.add_property('Pc', eos.Pc, 'MPa', fstring="{:.2f}")
         if eos_type != 'vdw':
             prop.add_property('omega', eos.omega, '', fstring="{:.3f}")
+        if eos.T < eos.Tc:
+            prop.add_property(f'Pvap({eos.T:.2f} K)', eos.Pvap, eos.pressure_unit, fstring="{:.2f}")
+            prop.add_property(f'Hvap({eos.T:.2f} K)', eos.Hvap, 'J/mol', fstring="{:.2f}")
+            prop.add_property(f'Svap({eos.T:.2f} K)', eos.Svap, 'J/mol-K', fstring="{:.4f}")
+        if eos.P < eos.Pc:
+            prop.add_property(f'Tsat({eos.P:.2f} {eos.pressure_unit})', eos.Tsat, 'K', fstring="{:.2f}")
     if Cp is not None:
         prop.pack_Cp(Cp, fmts=["{:.2f}", "{:.3e}", "{:.3e}", "{:.3e}"])
     return result.report(), prop.report()
@@ -143,7 +189,9 @@ def cli():
     }
     parser = ap.ArgumentParser(
         prog='sandlercubics',
-        description='Interact with cubic equations of state in Sandler\'s textbook'
+        description="Sandlercubics: A collection of computational tools using cubic equations of state based on Chemical, Biochemical, and Engineering Thermodynamics (5th edition) by Stan Sandler",
+        formatter_class = ConditionalBannerFormatter,
+        epilog="(c) 2025, Cameron F. Abrams <cfa22@drexel.edu>"
     )
     parser.add_argument(
         '-b',
