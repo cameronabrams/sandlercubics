@@ -7,7 +7,9 @@ import logging
 import numpy as np
 
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from dataclasses import dataclass
+from scipy.optimize import root_scalar
 
 from sandlermisc.gas_constant import GasConstant
 from sandlermisc.thermals import DeltaH_IG, DeltaS_IG
@@ -27,21 +29,29 @@ class CubicEOS(ABC):
     volume_unit: str = 'm3'
     """ units of volume, lower-case """
     temperature_unit: str = 'K'
-    """ units of temperature, not used """
+    """ units of temperature (not used) """
 
     phase: str = 'unspecified' 
     """ strict phase requirement flag; 'vapor', 'liquid', 'unspecified' (multiple roots) """
 
-    P: float = 0.1
+    P: float = None
     """ state pressure """
-    T: float = 298.15
+    T: float = None
     """ state temperature """
-    Pc: float = 0.1
+    x: float = None
+    """ vapor fraction in two-phase region; None if single phase """
+    Pc: float = None
     """ critical pressure """
-    Tc: float = 298.15
+    Tc: float = None
     """ critical temperature """
-    omega: float = 0.0 
+    omega: float = None 
     """ acentricity factor, dimensionless """
+    Cp: float | list[float] | dict [str, float] | None = None
+    """ heat capacity data for ideal-gas contributions """
+    Tref: float = 298.15
+    """ reference temperature for 'absolute' internal energy, enthalpy, and entropy calculations """
+    Pref_MPa: float = 0.1
+    """ reference pressure for 'absolute' entropy calculations, in MPa """
 
     logiter: bool = False
     """ flag for logging iterations in phase calculations """
@@ -73,7 +83,9 @@ class CubicEOS(ABC):
             logiter=self.logiter,
             maxiter=self.maxiter,
             epsilon=self.epsilon,
-            Tref=self.Tref
+            Tref=self.Tref,
+            Pref_MPa=self.Pref_MPa,
+            Cp=deepcopy(self.Cp)
         )
 
     @property
@@ -141,8 +153,9 @@ class CubicEOS(ABC):
 
     @property
     def v(self):
-        """ molar volume """
-        return self.Z * self.R_pv * self.T / self. P
+        """ Molar volume from compressibility factor Z """
+        Z = self.Z
+        return Z * self.R_pv * self.T / self.P
 
     @property
     @abstractmethod
@@ -252,10 +265,49 @@ class CubicEOS(ABC):
         dH_ideal = DeltaH_IG(self.T, other.T, Cp)
         return other.h_departure + dH_ideal - self.h_departure
 
+    @property
+    def h(self):
+        """ absolute enthalpy at state T and P """
+        if self.Cp is None:
+            raise ValueError("Cp data required for absolute enthalpy calculation.")
+        dH_ideal = DeltaH_IG(self.Tref, self.T, self.Cp)
+        return self.h_departure + dH_ideal
+
+    @property
+    def u(self):
+        """ absolute internal energy at state T and P """
+        if self.Cp is None:
+            raise ValueError("Cp data required for absolute internal energy calculation.")
+        # u = h - pv
+        return self.h - self.Pv * self.R / self.R_pv
+    
+    @property
+    def Pref_local(self):
+        """ reference pressure in local units """
+        if self.pressure_unit == 'mpa':
+            return self.Pref_MPa
+        elif self.pressure_unit == 'bar':
+            return self.Pref_MPa * 10.0
+        elif self.pressure_unit == 'pa':
+            return self.Pref_MPa * 1.e6
+        elif self.pressure_unit == 'atm':
+            return self.Pref_MPa * 9.86923
+        else:
+            raise ValueError(f"Unsupported pressure unit: {self.pressure_unit}")
+
+    @property
+    def s(self):
+        """ absolute entropy at state T and P """
+        if self.Cp is None:
+            raise ValueError("Cp data required for absolute entropy calculation.")
+        # make sure Pref_local is in correct units (same as self.P)
+        dS_ideal = DeltaS_IG(self.Tref, self.Pref_local, self.T, self.P, self.Cp, self.R)
+        return self.s_departure + dS_ideal
+
     def DeltaS(self, other: CubicEOS, Cp: float | list[float] | dict [str, float]):
         """
         Computes and returns entropy change from self to other state
-        including ideal gas contribution based on Cp
+        including ideal gas contribution based on Cp, no referece needed!
         """
         self.unit_consistency(other)
         dS_ideal = DeltaS_IG(self.T, self.P, other.T, other.P, Cp, self.R)
@@ -273,7 +325,159 @@ class CubicEOS(ABC):
         Returns Delta(U) (internal energy)
         """
         return self.DeltaH(other, Cp) - self.DeltaPV(other)
-    
+
+    def two_phase_check(self, v: float = None, h: float = None, s: float = None, u: float = None):
+        """
+        determine vapor fraction in two-phase region based on provided property
+        """
+        satd_clone = self.clone()
+        if satd_clone.T is not None:
+            satd_clone.P = self.Pvap
+        elif satd_clone.P is not None:
+            satd_clone.T = self.Tsat
+        if v is not None:
+            vL, vV = satd_clone.v
+            return (v - vL) / (vV - vL)
+        elif h is not None:
+            hL, hV = satd_clone.h
+            return (h - hL) / (hV - hL)
+        elif s is not None:
+            sL, sV = satd_clone.s
+            return (s - sL) / (sV - sL)
+        elif u is not None:
+            uL, uV = satd_clone.u
+            return (u - uL) / (uV - uL)
+        else:
+            raise ValueError("One of v, h, s, or u must be provided to determine vapor fraction.")
+
+    def P_solve(self, P_bracket: list[float] = None, v: float = None, h: float = None, s: float = None, u: float = None):
+        """
+        Solve for pressure given T and one other property (v, h, s, u)
+        """
+        if v is not None:
+            def objective(P):
+                self.P = P
+                logger.debug(f'Objective eval: P={P}, v={self.v}, target v={v}')
+                if hasattr(self.v, '__len__'):
+                    # pick the root closest to target v
+                    v_diffs = np.abs(self.v - v)
+                    v_closest = self.v[np.argmin(v_diffs)]
+                    return v - v_closest
+                return v - self.v
+            res = root_scalar(objective, bracket=P_bracket)
+            self.P = res.root
+        elif h is not None:
+            def objective(P):
+                self.P = P
+                logger.debug(f'Objective eval: P={P}, h={self.h}, target h={h}')
+                if hasattr(self.h, '__len__'):
+                    # pick the root closest to target h
+                    h_diffs = np.abs(self.h - h)
+                    h_closest = self.h[np.argmin(h_diffs)]
+                    return h - h_closest
+                return h - self.h
+            res = root_scalar(objective, bracket=P_bracket)
+            self.P = res.root
+        elif s is not None:
+            raise NotImplementedError("Pressure solve from entropy not implemented yet.")
+        elif u is not None:
+            raise NotImplementedError("Pressure solve from internal energy not implemented yet.")
+        else:
+            raise ValueError("One of v, h, s, or u must be provided to solve for pressure.")
+
+    def T_solve(self, T_bracket: list[float] = None, v: float = None, h: float = None, s: float = None, u: float = None):
+        """
+        Solve for temperature given P and one other property (v, h, s, u)
+        """
+        if v is not None:
+            def objective(T):
+                self.T = T
+                logger.debug(f'Objective eval: T={T}, v={self.v}, target v={v}')
+                if hasattr(self.v, '__len__'):
+                    # pick the root closest to target v
+                    v_diffs = np.abs(self.v - v)
+                    v_closest = self.v[np.argmin(v_diffs)]
+                    return v - v_closest
+                return v - self.v
+            res = root_scalar(objective, bracket=T_bracket)
+            self.T = res.root
+        elif h is not None:
+            def objective(T):
+                self.T = T
+                logger.debug(f'Objective eval: T={T}, h={self.h}, target h={h}')
+                if hasattr(self.h, '__len__'):
+                    # pick the root closest to target h
+                    h_diffs = np.abs(self.h - h)
+                    h_closest = self.h[np.argmin(h_diffs)]
+                    return h - h_closest
+                return h - self.h
+            res = root_scalar(objective, bracket=T_bracket)
+            self.T = res.root
+        elif s is not None:
+            raise NotImplementedError("Temperature solve from entropy not implemented yet.")
+        elif u is not None:
+            raise NotImplementedError("Temperature solve from internal energy not implemented yet.")
+        else:
+            raise ValueError("One of v, h, s, or u must be provided to solve for temperature.")
+
+    def solve(self, T: float = None, P: float = None, v: float = None, h: float = None, s: float = None, u: float = None):
+        """
+        Solve for the missing state variable given two of T, P, v, h, s, u.
+        Updates the object's state variables accordingly.
+        """
+        num_specified = sum(var is not None for var in [T, P, v, h, s, u])
+        if num_specified != 2:
+            raise ValueError("Exactly two of T, P, v, h, s, or u must be specified.")
+        
+        self.T = T
+        self.P = P
+
+        # Calculate the missing variable using the EOS
+        if self.T is not None and self.P is not None:
+            pass # do nothing, all props are set
+        elif self.P is None: # T and one other property (not P) is set
+            if self.T < self.Tc:
+                x = self.two_phase_check(v=v, h=h, s=s, u=u)
+                print(f'x={x}')
+                if 0 < x < 1:
+                    self.x = x
+                    self.P = self.Pvap
+                    # done.  All properties can be retrieved now.ABC
+                    return
+                elif x < 0:
+                    # subcooled liquid
+                    self.P = None
+                    Plo = self.Pvap
+                    Phi = self.Pc
+                else:
+                    # superheated vapor
+                    Phi = self.Pvap
+                    Plo = 1.e-5 # guess very low pressure
+                self.P_solve([Plo, Phi], v=v, h=h, s=s, u=u)
+            else: # given T is above Tc, so supercritical
+                self.P_solve([1.e-5, self.Pc*5], v=v, h=h, s=s, u=u)
+        elif self.T is None:
+            if self.P < self.Pc:
+                x = self.two_phase_check(v=v, h=h, s=s, u=u)
+                if 0 < x < 1:
+                    self.x = x
+                    self.T = self.Tsat
+                    return
+                elif x < 0:
+                    # subcooled liquid
+                    self.T = None
+                    Tlo = 1.0  # guess low temperature
+                    Thi = self.Tsat
+                else:
+                    # superheated vapor
+                    Thi = self.Tc
+                    Tlo = self.Tsat
+                self.T_solve([Tlo, Thi], v=v, h=h, s=s, u=u)
+            else:
+                self.T_solve([10.0, self.Tc+100], v=v, h=h, s=s, u=u)
+        else:
+            raise NotImplementedError("Solving when both T and P are not set is not implemented yet.")
+
 @dataclass
 class IdealGasEOS(CubicEOS):
     """

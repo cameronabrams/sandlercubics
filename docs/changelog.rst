@@ -8,29 +8,17 @@ All notable changes to sandlercubics will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
-[0.5.0] - 2020-02-02
+[0.7.0] - 2026-01-09
 --------------------
 
 Added
 ~~~~~
 
 * Output of two-phase saturated states now allowed
-* Enhanced phase identification for subcritical conditions
+* Direct calculation of absolute enthalpy and entropy (T ref of 0 C, Pref of 0.1 MPa)
 * Option to display both vapor and liquid phase properties simultaneously
 
-Changed
-~~~~~~~
-
-* Improved numerical stability near saturation curve
-* Better handling of edge cases in two-phase region
-
-Fixed
-~~~~~
-
-* Resolved issues with phase selection in CLI
-* Corrected saturation property calculations
-
-[0.4.0] - 2019-XX-XX
+[0.4.0] - 2026-01-07
 --------------------
 
 Added
@@ -46,7 +34,7 @@ Enhanced
 * Documentation for phase equilibrium calculations
 * Examples showing vaporization property usage
 
-[0.3.0] - 2019-XX-XX
+[0.3.0] - 2026-01-05
 --------------------
 
 Added
@@ -62,7 +50,7 @@ Changed
 * Refactored base EOS class for better extensibility
 * Improved code organization for adding new equations
 
-[0.2.1] - 2019-XX-XX
+[0.2.1] - 2025-12-30
 --------------------
 
 Changed
@@ -78,7 +66,7 @@ Fixed
 * Type hints and method signatures in base class
 * Documentation strings for inherited methods
 
-[0.2.0] - 2019-XX-XX
+[0.2.0] - 2025-12-29
 --------------------
 
 Added
@@ -95,7 +83,7 @@ Changed
 * CLI now uses consistent formatting across all output
 * Improved readability of state reports
 
-[0.1.1] - 2019-XX-XX
+[0.1.1] - 2025-12-28
 --------------------
 
 Fixed
@@ -104,7 +92,7 @@ Fixed
 * Removed erroneous thank-you message in CLI output
 * Minor bug fixes in output formatting
 
-[0.1.0] - 2019-XX-XX
+[0.1.0] - 2025-12-27
 --------------------
 
 Added
@@ -142,18 +130,7 @@ Considering
 ~~~~~~~~~~~
 
 * Mixture support (VLE for binary and multicomponent systems)
-* Additional equations of state (Redlich-Kwong, etc.)
-* Fugacity coefficient calculations
-* Activity coefficient models
-* Flash calculations
-* Enhanced saturation curve calculations
-* Improved performance for batch calculations
-* Python type stubs for better IDE support
 * Additional output formats (JSON, CSV)
-* Interactive plotting capabilities
-* Jupyter notebook examples
-* More comprehensive test suite
-* Continuous integration setup
 
 Breaking Changes Policy
 -----------------------

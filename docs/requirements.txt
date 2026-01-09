@@ -2,6 +2,7 @@
 sphinx>=5.0
 sphinx_rtd_theme>=1.0
 sphinx-copybutton>=0.5
+sphinxcontrib-mermaid>=0.7
 myst-parser>=0.18  # For Markdown support if needed
 furo
 

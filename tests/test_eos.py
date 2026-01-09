@@ -1,6 +1,11 @@
 from unittest import TestCase
-from sandlercubics.eos import IdealGasEOS, PengRobinsonEOS, GeneralizedVDWEOS, SoaveRedlichKwongEOS
+from sandlercubics.eos import IdealGasEOS, PengRobinsonEOS, VanDerWaalsEOS, SoaveRedlichKwongEOS
 from sandlerprops.properties import get_database
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 class TestCubicEOS(TestCase):
 
     def setUp(self):
@@ -105,4 +110,25 @@ class TestCubicEOS(TestCase):
         # check clausius-clapeyron relation
         Svap_CC = eos.Hvap / eos.T
         self.assertAlmostEqual(Svap, Svap_CC, delta=5)
+
+    def test_peng_robinson_solve(self):
+        Tc = self.methane.Tc
+        Pc = self.methane.Pc
+        omega = self.methane.Omega
+        eos = PengRobinsonEOS(Tc=Tc, Pc=Pc, omega=omega, pressure_unit="bar")
+
+        T = 300
+        P_start = 10.0
+
+        eos.solve(T=T, P=P_start, v=None)
+        v_sav = eos.v
+        eos.solve(T=T, v=v_sav, P=None)
+        P_implicit = eos.P
+        self.assertAlmostEqual(P_start, P_implicit, places=3)
+
+        eos.solve(P=8.0, v=v_sav, T=None)
+        T_implicit = eos.T
+        v_sav = eos.v
+        eos.solve(P=8.0, T=T_implicit, v=None)
+        self.assertAlmostEqual(eos.v, v_sav, places=3)
 

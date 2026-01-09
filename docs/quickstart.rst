@@ -177,4 +177,4 @@ Next Steps
 * Learn more about the :doc:`cli` for advanced command-line usage
 * Explore :doc:`examples` for more complex calculations
 * Read about the :doc:`theory` behind cubic equations of state
-* Check the :doc:`api/index` for complete API documentation
+* Check the :doc:`api/API` for complete API documentation

@@ -78,14 +78,6 @@ Optional Arguments
 
    Override acentric factor instead of using database value
 
-.. option:: --phase PHASE
-
-   Specify phase for two-phase conditions. Options:
-   
-   * ``vapor`` or ``v``: Vapor phase
-   * ``liquid`` or ``l``: Liquid phase
-   * ``both``: Show both phases (for saturated states)
-
 Examples
 ~~~~~~~~
 
@@ -253,16 +245,16 @@ Units Reference
 
 The CLI uses SI units consistently:
 
-==================  ============
+=================== ==================
 Property            Unit
-==================  ============
+=================== ==================
 Temperature (T)     Kelvin (K)
 Pressure (P)        Megapascal (MPa)
 Molar volume (v)    m³/mol
 Enthalpy (H)        J/mol
-Entropy (S)         J/(mol·K)
+Entropy (S)         J/(mol-K)
 Internal energy (U) J/mol
-==================  ============
+===================  ==================
 
 .. note::
    When using the Python API, pressure for EOS initialization is typically in **bar**, 
