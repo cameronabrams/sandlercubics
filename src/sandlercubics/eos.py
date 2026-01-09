@@ -315,7 +315,7 @@ class IdealGasEOS(CubicEOS):
         return 0.0
 
 @dataclass
-class GeneralizedVDWEOS(CubicEOS):
+class VanDerWaalsEOS(CubicEOS):
     """
     Generalized van der Waals equation of state, in which 'a' and 'b'
     are calculated from critical constants

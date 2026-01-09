@@ -1,0 +1,14 @@
+# Documentation build requirements
+sphinx>=5.0
+sphinx_rtd_theme>=1.0
+sphinx-copybutton>=0.5
+myst-parser>=0.18  # For Markdown support if needed
+furo
+
+# Package dependencies (needed for autodoc)
+numpy>=1.20
+scipy>=1.7
+
+sandlermisc
+sandlerprops
+sandlercubics
