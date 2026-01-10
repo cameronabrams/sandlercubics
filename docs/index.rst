@@ -33,7 +33,7 @@ Features
   * Molar volume (v)
   * Enthalpy departure (H\ :sub:`dep`)
   * Entropy departure (S\ :sub:`dep`)
-  * Vapor pressures and saturation temperatures
+  * Vapor pressure and saturation temperature
   * Heat and entropy of vaporization
 
 Quick Start
@@ -57,9 +57,7 @@ Basic usage from Python:
    db = PropertiesDatabase()
    methane = db.get_compound('methane')
    
-   eos = PengRobinsonEOS(Tc=methane.Tc, Pc=methane.Pc/10, omega=methane.Omega)
-   eos.T = 400  # K
-   eos.P = 0.5  # MPa
+   eos = PengRobinsonEOS(T=400, P=0.5).set_compound(methane)
    
    print(f"Molar volume: {eos.v.item():.6f} m³/mol")
 
@@ -106,8 +104,7 @@ Citation
 
 If you use this package for academic work, please cite:
 
-* Sandler, S. I. (2017). *Chemical, Biochemical, and Engineering Thermodynamics* (5th ed.). Wiley.
-* Abrams, C. F. (2020). sandlercubics (Version 0.5.0) [Computer software]. https://github.com/cameronabrams/sandlercubics
+* Sandler, S. (2017). *Chemical, Biochemical, and Engineering Thermodynamics* (5th ed.). Wiley.
 
 Contact
 =======

@@ -1,15 +1,21 @@
+# Author: Cameron F. Abrams, <cfa22@drexel.edu>
 
 import os
 import sys
 
 import argparse as ap
+import numpy as np
 
 from importlib.metadata import version
 
 from sandlerprops.properties import PropertiesDatabase
 from sandlermisc.statereporter import StateReporter
 
-from .eos import CubicEOS, IdealGasEOS, SoaveRedlichKwongEOS, PengRobinsonEOS, VanDerWaalsEOS
+from .eos import CubicEOS
+from .idealgas import IdealGasEOS
+from .soaveredlichkwong import SoaveRedlichKwongEOS
+from .pengrobinson import PengRobinsonEOS
+from .vanderwaals import VanDerWaalsEOS
 
 banner = r"""
  __                 _ _           
@@ -24,36 +30,6 @@ _\ \ (_| | | | | (_| | |  __/ |
     \___|\__,_|_.__/|_|\___|___/  v""" + version("sandlercubics") + """
 
 """
-
-def apply_schema(args: ap.Namespace) -> ap.Namespace:
-    """
-    Apply any necessary transformations to the parsed arguments.
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Parsed command-line arguments.
-
-    Returns
-    -------
-    argparse.Namespace
-        Transformed command-line arguments.
-    """
-    # Currently, no transformations are needed.
-    if args.command == 'state':
-        # must specify component, and two of T, P, v
-        assert args.n is not None, "Component name must be specified."
-        specified = sum([args.T is not None, args.P is not None, args.v is not None])
-        assert specified == 2, "Please specify exactly two of temperature, pressure, or molar volume."
-    elif args.command == 'delta':
-        # must specify component, and T1, P1, T2, P2
-        assert args.n is not None, "Component name must be specified."
-        specified1 = sum([args.T1 is not None, args.P1 is not None, args.v1 is not None])
-        specified2 = sum([args.T2 is not None, args.P2 is not None, args.v2 is not None])
-        assert specified1 == 2, "For state 1, please specify exactly two of temperature, pressure, or molar volume."
-        assert specified2 == 2, "For state 2, please specify exactly two of temperature, pressure, or molar volume."
-
-    return args
 
 def bar_to_unit(value_in_bar: float, to_unit: str) -> float:
     """
@@ -81,7 +57,7 @@ def bar_to_unit(value_in_bar: float, to_unit: str) -> float:
         raise ValueError(f"Unsupported pressure unit conversion to {to_unit}.")
     return value_in_bar * conversions[to_unit]
 
-def reporters(eos: CubicEOS, eos_type: str, Cp: float | list[float] | dict [str, float] = None) -> str:
+def reporters(eos: CubicEOS) -> str:
     """
     Generate state and property reports for the given EOS.
     
@@ -89,10 +65,6 @@ def reporters(eos: CubicEOS, eos_type: str, Cp: float | list[float] | dict [str,
     ----------
     eos : CubicEOS
         The equation of state object.
-    eos_type : str
-        Type of EOS ('ideal', 'vdw', 'pr', etc.).
-    Cp : float | list[float] | dict[str, float], optional
-        Heat capacity constants, by default None.
 
     Returns
     -------
@@ -101,55 +73,42 @@ def reporters(eos: CubicEOS, eos_type: str, Cp: float | list[float] | dict [str,
     """
 
     result = StateReporter({})
-    result.add_property('EOS', eos_type)
-    result.add_property('T', eos.T, eos.temperature_unit, fstring="{:.2f}")
-    result.add_property('P', eos.P, eos.pressure_unit, fstring="{:.2f}")
-    if eos_type != 'ideal':
-        if hasattr(eos.Z, '__len__'):
-            result.add_property('Z (roots)', ', '.join([f"{z:.4f}" for z in eos.Z]), '', fstring=None)
-        else:
-            result.add_property('Z', eos.Z, '', fstring="{:.4f}")
-    if hasattr(eos.v, '__len__'):
-        result.add_property('v (roots)', ', '.join([f"{vol:6g}" for vol in eos.v]), f'{eos.volume_unit}/mol', fstring=None)
-    else:
-        result.add_property('v', eos.v, f'{eos.volume_unit}/mol', fstring="{:6g}")
-    if eos_type != 'ideal':
-        if hasattr(eos.h, '__len__'):
-            result.add_property('h (roots)', ', '.join([f"{h:.2f}" for h in eos.h]), 'J/mol', fstring=None)
-        else:
-            result.add_property('h', eos.h, 'J/mol', fstring="{:.2f}")
-        if hasattr(eos.s, '__len__'):
-            result.add_property('s (roots)', ', '.join([f"{s:.2f}" for s in eos.s]), 'J/mol-K', fstring=None)
-        else:
-            result.add_property('s', eos.s, 'J/mol-K', fstring="{:.2f}")
-        if hasattr(eos.h_departure, '__len__'):
-            result.add_property('hdep (roots)', ', '.join([f"{hdep:.2f}" for hdep in eos.h_departure]), 'J/mol', fstring=None)
-        else:
-            result.add_property('hdep', eos.h_departure, 'J/mol', fstring="{:.2f}")
-        if hasattr(eos.s_departure, '__len__'):
-            result.add_property('sdep (roots)', ', '.join([f"{sdep:.2f}" for sdep in eos.s_departure]), 'J/mol-K', fstring=None)
-        else:
-            result.add_property('sdep', eos.s_departure, 'J/mol-K', fstring="{:.2f}")
-        if eos.T < eos.Tc:
-            result.add_property(f'Pvap({eos.T:.2f} K)', eos.Pvap, eos.pressure_unit, fstring="{:.2f}")
+    
+    result.add_property('T', eos.T, 'K', fstring="{:.2f}")
+    pu = eos.R._capitalizations.get(eos.pressure_unit, eos.pressure_unit)
+    result.add_property('P', eos.P, pu, fstring="{:.2f}")
+    result.add_property('Z', ', '.join([f"{z:.4f}" for z in eos.Z]), '', fstring=None)
+    vu = eos.R._capitalizations.get(eos.volume_unit, eos.volume_unit)
+    result.add_property('v', ', '.join([f"{vol:6g}" for vol in eos.v]), f'{vu}/mol', fstring=None)
+    result.add_property('h', ', '.join([f"{h:.2f}" for h in eos.h]), 'J/mol', fstring=None)
+    result.add_property('s', ', '.join([f"{s:.2f}" for s in eos.s]), 'J/mol-K', fstring=None)
+    result.add_property('hdep', ', '.join([f"{hdep:.2f}" for hdep in eos.h_departure]), 'J/mol', fstring=None)
+    result.add_property('sdep', ', '.join([f"{sdep:.2f}" for sdep in eos.s_departure]), 'J/mol-K', fstring=None)
+    if eos.T < eos.Tc:
+        pu = eos.R._capitalizations.get(eos.pressure_unit, eos.pressure_unit)
+        if eos.Pvap is not np.nan:
+            result.add_property(f'Pvap({eos.T:.2f} K)', eos.Pvap, pu, fstring="{:.2f}")
+        if eos.Hvap is not np.nan:
             result.add_property(f'Hvap({eos.T:.2f} K)', eos.Hvap, 'J/mol', fstring="{:.2f}")
+        if eos.Svap is not np.nan:
             result.add_property(f'Svap({eos.T:.2f} K)', eos.Svap, 'J/mol-K', fstring="{:.4f}")
         if eos.P < eos.Pc:
-            result.add_property(f'Tsat({eos.P:.2f} {eos.pressure_unit})', eos.Tsat, 'K', fstring="{:.2f}")
+            pu = eos.R._capitalizations.get(eos.pressure_unit, eos.pressure_unit)
+            if eos.Tsat is not np.nan:
+                result.add_property(f'Tsat({eos.P:.2f} {pu})', eos.Tsat, 'K', fstring="{:.2f}")
         if eos.x is not None:
             result.add_property('Vapor fraction x', eos.x, '', fstring="{:4g}")
     prop = StateReporter({})
-    if eos_type != 'ideal':
-        prop.add_property('Tc', eos.Tc, 'K', fstring="{:.2f}")
-        prop.add_property('Pc', eos.Pc, 'MPa', fstring="{:.2f}")
-        if eos_type != 'vdw':
-            prop.add_property('omega', eos.omega, '', fstring="{:.3f}")
+    prop.add_property('Tc', eos.Tc, 'K', fstring="{:.2f}")
+    pu = eos.R._capitalizations.get(eos.pressure_unit, eos.pressure_unit)
+    prop.add_property('Pc', eos.Pc, pu, fstring="{:.2f}")
+    prop.add_property('omega', eos.omega, '', fstring="{:.3f}")
 
-    if Cp is not None:
-        prop.add_property('Tref', eos.Tref, 'K', fstring="{:.2f}")
-        prop.add_property('Pref', eos.Pref_MPa, 'MPa', fstring="{:.2f}")
-        prop.pack_Cp(Cp, fmts=["{:.2f}", "{:.3e}", "{:.3e}", "{:.3e}"])
-    return result.report(), prop.report()
+    prop.add_property('Tref', eos.Tref, 'K', fstring="{:.2f}")
+    prop.add_property('Pref', eos.Pref_MPa, 'MPa', fstring="{:.2f}")
+    # print(eos.Cp)
+    prop.pack_Cp(eos.Cp, fmts=["{:.2f}", "{:.3e}", "{:.3e}", "{:.3e}"])
+    return result.report(),  prop.report()
 
 def state(args):
     """
@@ -160,43 +119,39 @@ def state(args):
     args : argparse.Namespace
         Parsed command-line arguments.
     """
-
-    db = PropertiesDatabase()
-    component = db.get_compound(args.n)
     pressure_unit = args.pressure_unit
     volume_unit = args.volume_unit
-    Pc_bar = component.Pc
-    Tc_K = component.Tc
-    Pc = bar_to_unit(Pc_bar, pressure_unit)
-    Cp = [component.CpA, component.CpB, component.CpC, component.CpD]
-    if component is None:
-        print(f"Component '{args.n}' not found in database.")
-        return
+    if args.n is not None:
+        db = PropertiesDatabase()
+        component = db.get_compound(args.n)
+        if component is None:
+            print(f"Component '{args.n}' not found in database.")
+            return
     match args.eos_type:
         case 'ideal':
-            eos = IdealGasEOS(pressure_unit=pressure_unit, volume_unit=volume_unit, Cp=Cp)
+            eos = IdealGasEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
         case 'vdw':
-            eos = VanDerWaalsEOS(pressure_unit=pressure_unit, volume_unit=volume_unit,
-                Tc = Tc_K,
-                Pc = Pc,
-                Cp = Cp
-            )
+            eos = VanDerWaalsEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
         case 'pr':
-            eos = PengRobinsonEOS(pressure_unit=pressure_unit, volume_unit=volume_unit,
-                Tc = Tc_K,
-                Pc = Pc,
-                omega = component.Omega,
-                Cp = Cp
-            )
+            eos = PengRobinsonEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
         case 'srk':
-            eos = SoaveRedlichKwongEOS(pressure_unit=pressure_unit, volume_unit=volume_unit,
-                Tc = Tc_K,
-                Pc = Pc,
-                omega = component.Omega,
-                Cp = Cp
-            )
-    eos.solve(T=args.T, P=args.P, v=args.v, h=args.h, s=args.s, u=args.u)
-    state_report, prop_report = reporters(eos, args.eos_type, Cp=Cp)
+            eos = SoaveRedlichKwongEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
+    if component is not None:
+        eos.set_compound(component)
+    if args.Tc is not None:
+        eos.Tc = args.Tc
+    if args.Pc is not None:
+        eos.Pc = args.Pc
+    if args.w is not None:
+        eos.omega = args.w
+    if args.Cp is not None:
+        eos.Cp = args.Cp
+    if args.eos_type == 'ideal':
+        eos.solve(T=args.T, P=args.P, v=args.v)
+    else:
+        eos.solve(T=args.T, P=args.P, v=args.v, h=args.h, s=args.s, u=args.u)
+    state_report, prop_report = reporters(eos)
+    print(f'State report for {component.Name} using {eos.description}:')
     print(state_report)
     if prop_report:
         print("\nConstants used for calculations:")
@@ -211,77 +166,65 @@ def delta(args):
     args : argparse.Namespace
         Parsed command-line arguments.
     """
-    db = PropertiesDatabase()
-    component = db.get_compound(args.n) # critical pressures are in bars!
     pressure_unit = args.pressure_unit
     volume_unit = args.volume_unit
-    Pc_bar = component.Pc
-    Pc = bar_to_unit(Pc_bar, pressure_unit)
-    Tc_K = component.Tc
-    Cp = [component.CpA, component.CpB, component.CpC, component.CpD]
-    if component is None:
-        print(f"Component '{args.n}' not found in database.")
-        return
+    if args.n is not None:
+        db = PropertiesDatabase()
+        component = db.get_compound(args.n) # critical pressures are in bars!
+        if component is None:
+            print(f"Component '{args.n}' not found in database.")
+            return
     match args.eos_type:
         case 'ideal':
-            eos1 = IdealGasEOS(pressure_unit=pressure_unit, volume_unit=volume_unit, Cp=Cp)
-            eos2 = IdealGasEOS(pressure_unit=pressure_unit, volume_unit=volume_unit, Cp=Cp)
+            eos1 = IdealGasEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
+            eos2 = IdealGasEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
         case 'vdw':
-            eos1 = VanDerWaalsEOS(pressure_unit=pressure_unit, volume_unit=volume_unit,
-                Tc = Tc_K,
-                Pc = Pc,
-                Cp = Cp     
-            )
-            eos2 = VanDerWaalsEOS(pressure_unit=pressure_unit, volume_unit=volume_unit,
-                Tc = Tc_K,
-                Pc = Pc,
-                Cp = Cp
-            )
+            eos1 = VanDerWaalsEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
+            eos2 = VanDerWaalsEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
         case 'pr':
-            eos1 = PengRobinsonEOS(pressure_unit=pressure_unit, volume_unit=volume_unit,
-                Tc = Tc_K,
-                Pc = Pc,
-                omega = component.Omega,
-                Cp = Cp
-            )
-            eos2 = PengRobinsonEOS(pressure_unit=pressure_unit, volume_unit=volume_unit,
-                Tc = Tc_K,
-                Pc = Pc,
-                omega = component.Omega,
-                Cp = Cp
-            )
+            eos1 = PengRobinsonEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
+            eos2 = PengRobinsonEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
         case 'srk':
-            eos1 = SoaveRedlichKwongEOS(pressure_unit=pressure_unit, volume_unit=volume_unit,
-                Tc = Tc_K,
-                Pc = Pc,
-                omega = component.Omega,
-                Cp = Cp
-            )
-            eos2 = SoaveRedlichKwongEOS(pressure_unit=pressure_unit, volume_unit=volume_unit,
-                Tc = Tc_K,
-                Pc = Pc,
-                omega = component.Omega,
-                Cp = Cp
-            )
+            eos1 = SoaveRedlichKwongEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
+            eos2 = SoaveRedlichKwongEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
+    if component is not None:
+        eos1.set_compound(component)
+        eos2.set_compound(component)
+    if args.Tc is not None:
+        eos1.Tc = args.Tc
+        eos2.Tc = args.Tc
+    if args.Pc is not None:
+        eos1.Pc = args.Pc
+        eos2.Pc = args.Pc
+    if args.w is not None:
+        eos1.omega = args.w
+        eos2.omega = args.w
+    if args.Cp is not None:
+        eos1.Cp = args.Cp
+        eos2.Cp = args.Cp
+    if args.eos_type == 'ideal':
+        eos1.solve(T=args.T1, P=args.P1, v=args.v1)
+        eos2.solve(T=args.T2, P=args.P2, v=args.v2)
+    else:
+        eos1.solve(T=args.T1, P=args.P1, v=args.v1, h=args.h1, s=args.s1, u=args.u1)
+        eos2.solve(T=args.T2, P=args.P2, v=args.v2, h=args.h2, s=args.s2, u=args.u2)
 
-    eos1.solve(T=args.T1, P=args.P1, v=args.v1, h=args.h1, s=args.s1, u=args.u1)
-    eos2.solve(T=args.T2, P=args.P2, v=args.v2, h=args.h2, s=args.s2, u=args.u2)
     delta_State = StateReporter({})
-    Cp = [component.CpA, component.CpB, component.CpC, component.CpD]
-    delta_H = eos2.DeltaH(eos1, Cp)
-    delta_S = eos2.DeltaS(eos1, Cp)
-    delta_U = eos2.DeltaU(eos1, Cp)
-    delta_State.add_property('Delta H', delta_H, 'J/mol', fstring="{:.2f}")
-    delta_State.add_property('Delta S', delta_S, 'J/mol-K', fstring="{:.2f}")
-    delta_State.add_property('Delta U', delta_U, 'J/mol', fstring="{:.2f}")
+    delta_H = eos2.h - eos1.h
+    delta_S = eos2.s - eos1.s
+    delta_U = eos2.u - eos1.u
+    delta_State.add_property('Delta H', ', '.join(f'{x:.2f}' for x in delta_H), 'J/mol', fstring=None)
+    delta_State.add_property('Delta S', ', '.join(f'{x:.2f}' for x in delta_S), 'J/mol-K', fstring=None)
+    delta_State.add_property('Delta U', ', '.join(f'{x:.2f}' for x in delta_U), 'J/mol', fstring=None)
+    state_1, _ = reporters(eos1,)
+    state_2, consts = reporters(eos2)
     if args.show_states:
         print("State 1:")
-        state_1, _ = reporters(eos1, args.eos_type, Cp=Cp)
         print(state_1)
         print("\nState 2:")
-        state_2, consts = reporters(eos2, args.eos_type, Cp=Cp)
         print(state_2)
-        print("\nProperty differences:")
+        print("\n")
+    print(f"Property differences for {component.Name} using {eos1.description}:")
     print(delta_State.report())
     print("\nConstants used for calculations:")
     print(consts)
@@ -364,10 +307,17 @@ def cli():
         )
 
     crit_args = [
+        ('n', 'component', 'component name (e.g., methane, ethane, etc.)', str, False),
         ('Pc', 'critical_pressure', 'critical pressure (if component not specified)', float, False),
         ('Tc', 'critical_temperature', 'critical temperature in K (if component not specified)', float, False),
         ('w', 'acentric_factor', 'acentric factor omega (if component not specified)', float, False),
-        ('n', 'component', 'component name (e.g., methane, ethane, etc.)', str, True),
+    ]
+
+    cp_args = [
+        ('CpA', 'CpA', 'heat capacity coefficient A (J/mol-K) (if component not specified)', float, False),
+        ('CpB', 'CpB', 'heat capacity coefficient B (J/mol-K^2) (if component not specified)', float, False),
+        ('CpC', 'CpC', 'heat capacity coefficient C (J/mol-K^3) (if component not specified)', float, False),
+        ('CpD', 'CpD', 'heat capacity coefficient D (J/mol-K^4) (if component not specified)', float, False),
     ]
 
     state_args = [
@@ -388,6 +338,15 @@ def cli():
             help=explanation
         )
     
+    command_parsers['state'].add_argument(
+        '--Cp',
+        nargs=4,
+        type=float,
+        metavar=('CpA', 'CpB', 'CpC', 'CpD'),
+        help='heat capacity polynomial coefficients A, B, C, D (J/mol-K, J/mol-K^2, J/mol-K^3, J/mol-K^4) (if component not specified)',
+        default=None
+    )
+
     delta_args = [
         ('P1', 'pressure1', 'pressure of state 1', float, False),
         ('T1', 'temperature1', 'temperature of state 1 in K (always in K)', float, False),
@@ -417,6 +376,15 @@ def cli():
         default=False,
         action=ap.BooleanOptionalAction,
         help='also show the full states for state 1 and state 2'
+    )
+
+    command_parsers['delta'].add_argument(
+        '--Cp',
+        nargs=4,
+        type=float,
+        metavar=('CpA', 'CpB', 'CpC', 'CpD'),
+        help='heat capacity polynomial coefficients A, B, C, D (J/mol-K, J/mol-K^2, J/mol-K^3, J/mol-K^4) (if component not specified)',
+        default=None
     )
 
     args = parser.parse_args()
