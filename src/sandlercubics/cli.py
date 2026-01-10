@@ -40,7 +40,7 @@ def bar_to_unit(value_in_bar: float, to_unit: str) -> float:
     value_in_bar : float
         Pressure value in bar.
     to_unit : str
-        Target unit ('mpa', 'bar', 'atm', 'pa').
+        Target unit ('mpa', 'MPa', 'kpa', 'kPa', 'pa', 'Pa', 'bar', 'atm').
 
     Returns
     -------
@@ -49,9 +49,13 @@ def bar_to_unit(value_in_bar: float, to_unit: str) -> float:
     """
     conversions = {
         'mpa': 0.1,
+        'MPa': 0.1,
+        'kpa': 100.0,
+        'kPa': 100.0,
+        'pa': 1e5,
+        'Pa': 1e5,
         'bar': 1.0,
         'atm': 0.986923,
-        'pa': 1e5,
     }
     if to_unit not in conversions:
         raise ValueError(f"Unsupported pressure unit conversion to {to_unit}.")
@@ -230,6 +234,10 @@ def delta(args):
     print(consts)
     
 def cli():
+    """
+    Command-line interface for sandlercubics package.
+    """
+
     subcommands = {
         'state': dict(
             func = state,
@@ -279,7 +287,6 @@ def cli():
             action='help',
             help=specs['help']
         )
-
 
     options = [
         ('eos', 'eos_type', 'type of cubic equation of state to use', str, 'vdw', ['ideal', 'vdw', 'pr', 'srk']),
