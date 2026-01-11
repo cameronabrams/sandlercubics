@@ -15,8 +15,10 @@ sys.path.insert(0, os.path.abspath('../src'))
 project = 'sandlercubics'
 copyright = '2025-2026, Cameron F. Abrams'
 author = 'Cameron F. Abrams'
-release = '0.5.0'
-version = '0.5.0'
+# get version from the package
+
+release = sandlercubics.__version__
+version = release  # short X.Y.Z version
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
