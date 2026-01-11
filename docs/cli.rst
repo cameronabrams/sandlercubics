@@ -115,6 +115,10 @@ These are optional arguments:
    
       C_p^{ig} = A + BT + CT^2 + DT^3
 
+.. option:: --show-props
+   
+   Display critical constants and heat capacity used in calculations (default is to hide)
+
 Examples
 ~~~~~~~~
 
@@ -122,19 +126,19 @@ Examples
 
 .. code-block:: bash
 
-   sandlercubics state -T 400 -P 0.5 -eos pr -n methane
+   sandlercubics state -T 400 -P 0.5 -eos pr -n methane --show-props
 
 Output::
 
    State report for methane using Peng-Robinson Equation of State:
-   T    = 400.00 K
-   P    = 0.50 MPa
-   Z    = 0.9964
-   v    = 0.00662792 m3/mol
-   h    = 3858.78 J/mol
-   s    = -2.24 J/mol-K
-   hdep = -54.75 J/mol
-   sdep = -0.11 J/mol-K
+   T    =  400.00 K
+   P    =  0.50 MPa
+   Z    =  0.996444
+   v    =  0.00662792 m3/mol
+   h    =  3858.78 J/mol
+   s    = -2.23817 J/mol-K
+   hdep = -54.7512 J/mol
+   sdep = -0.107042 J/mol-K
 
    Constants used for calculations:
    Tc    = 190.40 K
@@ -163,19 +167,19 @@ Output::
 
 .. code-block:: bash
 
-   sandlercubics state -T 180 -P 3.0 -eos pr -n methane
+   sandlercubics state -T 180 -P 3.0 -eos pr -n methane --show-props
 
 Output::
 
    State report for methane using Peng-Robinson Equation of State:
-   T              = 180.00 K
-   P              = 3.00 MPa
-   Z              = 0.6259, 0.1244
-   v              = 0.000312234, 6.20463e-05 m3/mol
+   T              =  180.00 K
+   P              =  3.00 MPa
+   Z              =  0.625886,  0.124374
+   v              =  0.000312234,  6.20463e-05 m3/mol
    h              = -5407.84, -9334.59 J/mol
-   s              = -50.63, -72.85 J/mol-K
+   s              = -50.6319, -72.8453 J/mol-K
    hdep           = -1597.87, -5524.61 J/mol
-   sdep           = -6.22, -28.43 J/mol-K
+   sdep           = -6.21915, -28.4326 J/mol-K
    Pvap(180.00 K) = 3.33 MPa
    Hvap(180.00 K) = 3686.60 J/mol
    Svap(180.00 K) = 20.4811 J/mol-K
@@ -241,7 +245,7 @@ Optional Arguments
 Examples
 ~~~~~~~~
 
-**Basic state change:**
+**Basic state change calculations:**
 
 .. code-block:: bash
 
@@ -249,21 +253,10 @@ Examples
 
 Output::
 
-   Property differences for methane using Peng-Robinson Equation of State:
-   Delta H = 1571.86 J/mol
-   Delta S = -1.45 J/mol-K
-   Delta U = 1104.74 J/mol
-
-   Constants used for calculations:
-   Tc    = 190.40 K
-   Pc    = 4.60 MPa
-   omega = 0.011
-   Tref  = 298.15 K
-   Pref  = 0.10 MPa
-   CpA   = 19.25 J/mol-K
-   CpB   = 5.213e-02 J/mol-K^2
-   CpC   = 1.197e-05 J/mol-K^3
-   CpD   = -1.132e-08 J/mol-K^4
+   State-change calculations for methane using Peng-Robinson Equation of State:
+   Δh =  1571.86 J/mol
+   Δs = -1.44983 J/mol-K
+   Δu =  1104.74 J/mol
 
 **With state details:**
 
@@ -273,42 +266,22 @@ Output::
 
 Output::
 
-   State 1:
-   T    = 350.00 K
-   P    = 7.50 MPa
-   Z    = 0.9262
-   v    = 0.000359369 m3/mol
-   h    = 929.35 J/mol
-   s    = -32.10 J/mol-K
-   hdep = -989.93 J/mol
-   sdep = -2.13 J/mol-K
+   State-change calculations for methane using Peng-Robinson Equation of State:
 
-   State 2:
-   T    = 400.00 K
-   P    = 15.50 MPa
-   Z    = 0.9509
-   v    = 0.000204025 m3/mol
-   h    = 2501.21 J/mol
-   s    = -33.54 J/mol-K
-   hdep = -1412.32 J/mol
-   sdep = -2.86 J/mol-K
+   State 1:                       State 2:
+   T    =  350.00 K               T    =  400.00 K
+   P    =  7.50 MPa               P    =  15.50 MPa
+   Z    =  0.92619                Z    =  0.950871
+   v    =  0.000359369 m3/mol     v    =  0.000204025 m3/mol
+   h    =  929.35 J/mol           h    =  2501.21 J/mol
+   s    = -32.095 J/mol-K         s    = -33.5449 J/mol-K
+   hdep = -989.935 J/mol          hdep = -1412.32 J/mol
+   sdep = -2.12621 J/mol-K        sdep = -2.86197 J/mol-K
 
-
-   Property differences for methane using Peng-Robinson Equation of State:
-   Delta H = 1571.86 J/mol
-   Delta S = -1.45 J/mol-K
-   Delta U = 1104.74 J/mol
-
-   Constants used for calculations:
-   Tc    = 190.40 K
-   Pc    = 4.60 MPa
-   omega = 0.011
-   Tref  = 298.15 K
-   Pref  = 0.10 MPa
-   CpA   = 19.25 J/mol-K
-   CpB   = 5.213e-02 J/mol-K^2
-   CpC   = 1.197e-05 J/mol-K^3
-   CpD   = -1.132e-08 J/mol-K^4
+   Property changes:
+   Δh =  1571.86 J/mol
+   Δs = -1.44983 J/mol-K
+   Δu =  1104.74 J/mol
 
 Units Reference
 ---------------
@@ -326,9 +299,6 @@ Entropy (S)         J/(mol-K)
 Internal energy (U) J/mol
 =================== ==================
 
-.. note::
-   When using the Python API, pressure for EOS initialization is typically in **bar**, 
-   not MPa. The CLI handles this conversion automatically.  The user can specify pressure units with the ``-pu`` option, the volume output units with the ``-vu`` option.
 
 Tips and Best Practices
 -----------------------

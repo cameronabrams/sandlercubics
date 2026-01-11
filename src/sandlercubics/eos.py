@@ -14,6 +14,7 @@ from scipy.optimize import root_scalar
 from sandlermisc.gas_constant import GasConstant
 from sandlermisc.thermals import DeltaH_IG, DeltaS_IG
 from sandlerprops.compound import Compound
+from sandlerprops.properties import get_database
 
 logger = logging.getLogger(__name__)
 
@@ -451,7 +452,7 @@ class CubicEOS(ABC):
         return self._cache['Tsat']
 
     def unit_consistency(self, other: CubicEOS):
-        consistent = self.pressure_unit == other.pressure_unit and self.volume_unit == other.volume_unit and self.temperature_unit == other.temperature_unit
+        consistent = self.pressure_unit == other.pressure_unit and self.volume_unit == other.volume_unit
         if not consistent:
             raise ValueError('inconsistent units')
 
@@ -525,33 +526,33 @@ class CubicEOS(ABC):
         dS_ideal = DeltaS_IG(self.Tref, self.Pref_local, self.T, self.P, self.Cp, self.R)
         return self.s_departure + dS_ideal
 
-    def DeltaH(self, other: CubicEOS) -> np.ndarray:
+    def delta_h(self, other: CubicEOS) -> np.ndarray:
         """
         Computes and returns enthalpy change from self to other state
         """
         self.unit_consistency(other)
         return other.h - self.h
 
-    def DeltaS(self, other: CubicEOS) -> np.ndarray:
+    def delta_s(self, other: CubicEOS) -> np.ndarray:
         """
         Computes and returns entropy change from self to other state
         """
         self.unit_consistency(other)
         return other.s - self.s
     
-    def DeltaPV(self, other: CubicEOS) -> np.ndarray:
+    def delta_pv(self, other: CubicEOS) -> np.ndarray:
         """
         Returns Delta(PV) in thermal (not PV) units 
         """
         self.unit_consistency(other)
         return (other.Pv - self.Pv) * self.R / self.R_pv
     
-    def DeltaU(self, other: CubicEOS) -> np.ndarray:
+    def delta_u(self, other: CubicEOS) -> np.ndarray:
         """
         Returns Delta(U) (internal energy)
         """
-        return self.DeltaH(other) - self.DeltaPV(other)
-
+        return self.delta_h(other) - self.delta_pv(other)
+        
     def two_phase_check(self, v: float = None, h: float = None, s: float = None, u: float = None):
         """
         Returns the vapor fraction given one property in the two-phase region.
@@ -780,7 +781,23 @@ class CubicEOS(ABC):
         else:
             raise NotImplementedError("Solving when neither T nor P are set is not implemented yet.")
 
-    def set_compound(self, compound: Compound = None):
+    def set_compound(self, compound: str | Compound):
+        """
+        Set critical properties and Cp data from a compound name.
+
+        Parameters
+        ----------
+        compound: str | Compound
+            Name of the compound to retrieve properties for
+        """
+        db = get_database()
+        compound = db.get_compound(compound) if isinstance(compound, str) else compound
+        compound_name = compound.Name if compound is not None else str(compound)
+        if compound is None:
+            raise ValueError(f"Compound '{compound_name}' not found in database.")
+        return self.transfer_crits_from_compound(compound)
+
+    def transfer_crits_from_compound(self, compound: Compound = None):
         """
         Set critical properties and Cp data from a Compound object.
 

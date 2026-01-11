@@ -78,16 +78,16 @@ def reporters(eos: CubicEOS) -> str:
 
     result = StateReporter({})
     
-    result.add_property('T', eos.T, 'K', fstring="{:.2f}")
+    result.add_property('T', eos.T, 'K', fstring="{: .2f}")
     pu = eos.R._capitalizations.get(eos.pressure_unit, eos.pressure_unit)
-    result.add_property('P', eos.P, pu, fstring="{:.2f}")
-    result.add_property('Z', ', '.join([f"{z:.4f}" for z in eos.Z]), '', fstring=None)
+    result.add_property('P', eos.P, pu, fstring="{: .2f}")
+    result.add_property('Z', ', '.join([f"{z: 4g}" for z in eos.Z]), '', fstring=None)
     vu = eos.R._capitalizations.get(eos.volume_unit, eos.volume_unit)
-    result.add_property('v', ', '.join([f"{vol:6g}" for vol in eos.v]), f'{vu}/mol', fstring=None)
-    result.add_property('h', ', '.join([f"{h:.2f}" for h in eos.h]), 'J/mol', fstring=None)
-    result.add_property('s', ', '.join([f"{s:.2f}" for s in eos.s]), 'J/mol-K', fstring=None)
-    result.add_property('hdep', ', '.join([f"{hdep:.2f}" for hdep in eos.h_departure]), 'J/mol', fstring=None)
-    result.add_property('sdep', ', '.join([f"{sdep:.2f}" for sdep in eos.s_departure]), 'J/mol-K', fstring=None)
+    result.add_property('v', ', '.join([f"{vol: 6g}" for vol in eos.v]), f'{vu}/mol', fstring=None)
+    result.add_property('h', ', '.join([f"{h: 6g}" for h in eos.h]), 'J/mol', fstring=None)
+    result.add_property('s', ', '.join([f"{s: 6g}" for s in eos.s]), 'J/mol-K', fstring=None)
+    result.add_property('hdep', ', '.join([f"{hdep: 6g}" for hdep in eos.h_departure]), 'J/mol', fstring=None)
+    result.add_property('sdep', ', '.join([f"{sdep: 6g}" for sdep in eos.s_departure]), 'J/mol-K', fstring=None)
     if eos.T < eos.Tc:
         pu = eos.R._capitalizations.get(eos.pressure_unit, eos.pressure_unit)
         if eos.Pvap is not np.nan:
@@ -157,7 +157,7 @@ def state(args):
     state_report, prop_report = reporters(eos)
     print(f'State report for {component.Name} using {eos.description}:')
     print(state_report)
-    if prop_report:
+    if prop_report and args.show_props:
         print("\nConstants used for calculations:")
         print(prop_report)
 
@@ -217,21 +217,24 @@ def delta(args):
     delta_H = eos2.h - eos1.h
     delta_S = eos2.s - eos1.s
     delta_U = eos2.u - eos1.u
-    delta_State.add_property('Delta H', ', '.join(f'{x:.2f}' for x in delta_H), 'J/mol', fstring=None)
-    delta_State.add_property('Delta S', ', '.join(f'{x:.2f}' for x in delta_S), 'J/mol-K', fstring=None)
-    delta_State.add_property('Delta U', ', '.join(f'{x:.2f}' for x in delta_U), 'J/mol', fstring=None)
-    state_1, _ = reporters(eos1,)
+    delta_State.add_property('Δh', ', '.join(f'{x: 7g}' for x in delta_H), 'J/mol', fstring=None)
+    delta_State.add_property('Δs', ', '.join(f'{x: 7g}' for x in delta_S), 'J/mol-K', fstring=None)
+    delta_State.add_property('Δu', ', '.join(f'{x: 7g}' for x in delta_U), 'J/mol', fstring=None)
+    state_1, _ = reporters(eos1)
     state_2, consts = reporters(eos2)
+    print(f"State-change calculations for {component.Name} using {eos1.description}:")
     if args.show_states:
-        print("State 1:")
-        print(state_1)
-        print("\nState 2:")
-        print(state_2)
-        print("\n")
-    print(f"Property differences for {component.Name} using {eos1.description}:")
+        print()
+        two_states = ["State 1:                       State 2:"]
+        for line1, line2 in zip(state_1.splitlines(), state_2.splitlines()):
+            two_states.append(f"{line1:<26s}     {line2}")
+        print("\n".join(two_states))
+        print()
+        print("Property changes:")
     print(delta_State.report())
-    print("\nConstants used for calculations:")
-    print(consts)
+    if args.show_props:
+        print("\nConstants used for calculations:")
+        print(consts)
     
 def cli():
     """
@@ -353,6 +356,12 @@ def cli():
         help='heat capacity polynomial coefficients A, B, C, D (J/mol-K, J/mol-K^2, J/mol-K^3, J/mol-K^4) (if component not specified)',
         default=None
     )
+    command_parsers['state'].add_argument(
+        '--show-props',
+        default=False,
+        action=ap.BooleanOptionalAction,
+        help='also show all critical properties and Cp coefficients used'
+    )
 
     delta_args = [
         ('P1', 'pressure1', 'pressure of state 1', float, False),
@@ -384,7 +393,12 @@ def cli():
         action=ap.BooleanOptionalAction,
         help='also show the full states for state 1 and state 2'
     )
-
+    command_parsers['delta'].add_argument(
+        '--show-props',
+        default=False,
+        action=ap.BooleanOptionalAction,
+        help='also show all critical properties and Cp coefficients used'
+    )
     command_parsers['delta'].add_argument(
         '--Cp',
         nargs=4,

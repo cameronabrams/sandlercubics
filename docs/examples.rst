@@ -15,23 +15,10 @@ Calculate properties of propane at 350 K and 2.0 MPa using Peng-Robinson:
 
 .. code-block:: python
 
-   from sandlercubics.eos import PengRobinsonEOS
-   from sandlerprops.properties import PropertiesDatabase
+   from sandlercubics import PengRobinsonEOS
    
-   # Load compound data
-   db = PropertiesDatabase()
-   propane = db.get_compound('propane')
-   
-   # Initialize EOS
-   eos = PengRobinsonEOS(
-       Tc=propane.Tc,
-       Pc=propane.Pc / 10,  # Convert MPa to bar
-       omega=propane.Omega
-   )
-   
-   # Set state
-   eos.T = 350  # K
-   eos.P = 2.0  # MPa
+   # Initialize EOS and set state
+   eos = PengRobinsonEOS(T=350, P=2.0).set_compound('propane')
    
    # Display results
    print(f"State conditions:")

@@ -30,9 +30,8 @@ Features
 * Calculation of thermodynamic properties including:
   
   * Compressibility factor (Z)
-  * Molar volume (v)
-  * Enthalpy departure (H\ :sub:`dep`)
-  * Entropy departure (S\ :sub:`dep`)
+  * Molar volume (v), molar enthalpy (h), molar entropy (s), and molar internal energy (u)
+  * Enthalpy and entropy departure (H\ :sub:`dep`, S\ :sub:`dep`)
   * Vapor pressure and saturation temperature
   * Heat and entropy of vaporization
 
@@ -51,15 +50,9 @@ Basic usage from Python:
 
 .. code-block:: python
 
-   from sandlercubics.eos import PengRobinsonEOS
-   from sandlerprops.properties import PropertiesDatabase
-   
-   db = PropertiesDatabase()
-   methane = db.get_compound('methane')
-   
-   eos = PengRobinsonEOS(T=400, P=0.5).set_compound(methane)
-   
-   print(f"Molar volume: {eos.v.item():.6f} m³/mol")
+   from sandlercubics import PengRobinsonEOS
+   eos = PengRobinsonEOS(T=400, P=0.5).set_compound('methane')
+   print(f"Molar volume: {', '.join(f'{v: 6g}' for v in eos.v)} m³/mol")
 
 Contents
 --------
@@ -86,13 +79,6 @@ Contents
    
    contributing
    changelog
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
 
 License
 =======

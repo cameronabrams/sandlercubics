@@ -8,19 +8,29 @@ This guide will get you up and running with sandlercubics in just a few minutes.
 Basic Concepts
 --------------
 
-sandlercubics provides implementations of cubic equations of state (EOS) commonly used in chemical engineering thermodynamics:
+sandlercubics provides implementations of pure-species cubic equations of state (EOS) presented in Sandler's textbook:
 
 * **van der Waals (vdW)**: The original cubic EOS, useful for understanding basic concepts
 * **Peng-Robinson (PR)**: Industry-standard EOS with good accuracy for hydrocarbons
 * **Soave-Redlich-Kwong (SRK)**: Alternative cubic EOS popular in gas processing
 
-Each EOS can calculate:
+You can set up a state using temperature (T) and pressure (P) as inputs, along with a compound name from the sandlerprops database or by providing critical properties directly.  Instead of T and P, you can also specify other combinations of state variables, such as T and molar volume (v), or P and molar enthalpy (h).  Any two independent state variables are sufficient to define the thermodynamic state of a pure substance.  However, at least one of the two variables must be temperature or pressure (for now).
+
+The following computed properties are always represented by numpy arrays, even if they contain only a single value:
 
 * Compressibility factor (Z)
-* Molar volume (v)
-* Enthalpy departure (H\ :sub:`dep`)
-* Entropy departure (S\ :sub:`dep`)
-* Phase equilibrium properties
+* Molar enthalpy (h), entropy (s), volume (v), and internal energy (u) (with respect to reference temperature of 298.15 K and reference pressure of 0.1 MPa)
+* Enthalpy and entropy departure (H\ :sub:`dep`, S\ :sub:`dep`)
+
+The following properties are available when applicable as scalars:
+
+* Heat of vaporization (ΔH\ :sub:`vap`) at state temperature and saturation pressure
+* Entropy of vaporization (ΔS\ :sub:`vap`) at state temperature and saturation pressure
+* Vapor pressure (P\ :sup:`vap`) (aka, saturation pressure) at state temperature
+* Saturation temperature (T\ :sup:`sat`) at state pressure
+* Vapor fraction (x\ :sub:`vap`) for two-phase states
+
+Temperature is in Kelvin (K) and pressure is in megapascals (MPa) by default.  Other units of pressure are supported.  See the :doc:`API` documentation for details.
 
 First Calculation
 -----------------
@@ -36,49 +46,53 @@ From the Command Line
 
 Output::
 
-   EOS  = pr
-   T    = 400.00 K
-   P    = 0.50 MPa
-   Z    = 1.00
-   v    = 0.006628 m³/mol
-   Hdep = -54.75 J/mol
-   Sdep = -0.11 J/mol-K
-   Tc   = 190.40 K
-   Pc   = 4.60 MPa
-   omega = 0.011
+   State report for methane using Peng-Robinson Equation of State:
+   T    =  400.00 K
+   P    =  0.50 MPa
+   Z    =  0.996444
+   v    =  0.00662792 m3/mol
+   h    =  3858.78 J/mol
+   s    = -2.23817 J/mol-K
+   hdep = -54.7512 J/mol
+   sdep = -0.107042 J/mol-K
 
 From Python
 ~~~~~~~~~~~
 
 .. code-block:: python
 
-   from sandlercubics.eos import PengRobinsonEOS
-   from sandlerprops.properties import PropertiesDatabase
+   from sandlercubics import PengRobinsonEOS
+   # Create EOS object and set state
+   pr_methane = PengRobinsonEOS(T=400, P=0.5).set_compound('methane')
    
-   # Load compound properties
-   db = PropertiesDatabase()
-   methane = db.get_compound('methane')
-   
-   # Create EOS object
-   # Note: Pc needs to be in bar, so divide by 10
-   eos = PengRobinsonEOS(
-       Tc=methane.Tc,      # Critical temperature (K)
-       Pc=methane.Pc/10,   # Critical pressure (bar)
-       omega=methane.Omega # Acentric factor
-   )
-   
-   # Set state conditions
-   eos.T = 400  # Temperature in K
-   eos.P = 0.5  # Pressure in MPa
-   
-   # Access calculated properties
-   print(f"Compressibility factor: {eos.Z:.4f}")
-   print(f"Molar volume: {eos.v.item():.6f} m³/mol")
-   print(f"Enthalpy departure: {eos.Hdep:.2f} J/mol")
-   print(f"Entropy departure: {eos.Sdep:.2f} J/mol-K")
+   # Access calculated properties; remember these are numpy arrays
+   print(f"Compressibility factor: {', '.join([f'{z: 4g}' for z in pr_methane.Z])}")
+   print(f"Molar volume: {', '.join([f'{v: 6g}' for v in pr_methane.v])} m³/mol")
+   print(f"Enthalpy: {', '.join([f'{h: 6g}' for h in pr_methane.h])} J/mol")
+   print(f"Entropy: {', '.join([f'{s: 6g}' for s in pr_methane.s])} J/mol-K")
+   print(f"Enthalpy departure: {', '.join([f'{hdep: 6g}' for hdep in pr_methane.h_departure])} J/mol")
+   print(f"Entropy departure: {', '.join([f'{sdep: 6g}' for sdep in pr_methane.s_departure])} J/mol-K")
 
-Comparing States
-----------------
+You need not set the state variables (T, P) during initialization; you can also just directly assign them later:
+
+.. code-block:: python
+
+   from sandlercubics import PengRobinsonEOS
+   # Create EOS object without state and without compound
+   pr = PengRobinsonEOS()
+   
+   # Set compound later; .set_compound returns self for convenience
+   pr_methane = pr.set_compound('methane')
+   
+   # Set state later
+   pr_methane.T = 400
+   pr_methane.P = 0.5
+   
+   # Now access properties as before
+   print(f"Molar volume: {', '.join([f'{v: 6g}' for v in pr_methane.v])} m³/mol")
+
+State-Change Calculations
+-------------------------
 
 Calculate property changes between two thermodynamic states:
 
@@ -89,87 +103,87 @@ From the Command Line
 
    sandlercubics delta -T1 350 -P1 7.5 -T2 400 -P2 15.5 -n methane -eos pr --show-states
 
-This calculates ΔH, ΔS, and ΔU between the two states.
+Output::
+
+   State-change calculations for methane using Peng-Robinson Equation of State:
+
+   State 1:                       State 2:
+   T    =  350.00 K               T    =  400.00 K
+   P    =  7.50 MPa               P    =  15.50 MPa
+   Z    =  0.92619                Z    =  0.950871
+   v    =  0.000359369 m3/mol     v    =  0.000204025 m3/mol
+   h    =  929.35 J/mol           h    =  2501.21 J/mol
+   s    = -32.095 J/mol-K         s    = -33.5449 J/mol-K
+   hdep = -989.935 J/mol          hdep = -1412.32 J/mol
+   sdep = -2.12621 J/mol-K        sdep = -2.86197 J/mol-K
+
+   Property changes:
+   Δh =  1571.86 J/mol
+   Δs = -1.44983 J/mol-K
+   Δu =  1104.74 J/mol
 
 From Python
 ~~~~~~~~~~~
 
+State-change calculations can be performed by creating two EOS objects representing the initial and final states, then using the built-in methods to compute property differences:
+
 .. code-block:: python
 
-   from sandlercubics.eos import PengRobinsonEOS
-   from sandlerprops.properties import PropertiesDatabase
-   
-   db = PropertiesDatabase()
-   methane = db.get_compound('methane')
+   from sandlercubics import PengRobinsonEOS
    
    # State 1
-   eos1 = PengRobinsonEOS(Tc=methane.Tc, Pc=methane.Pc/10, omega=methane.Omega)
-   eos1.T = 350
-   eos1.P = 7.5
+   pr_methane1 = PengRobinsonEOS(T=350, P=7.5).set_compound('methane')
    
    # State 2
-   eos2 = PengRobinsonEOS(Tc=methane.Tc, Pc=methane.Pc/10, omega=methane.Omega)
-   eos2.T = 400
-   eos2.P = 15.5
+   pr_methane2 = PengRobinsonEOS(T=400, P=15.5).set_compound('methane')
    
-   # Calculate property differences (you'll need to implement this based on your API)
-   # This is a placeholder - adjust based on actual implementation
-   delta_H = (eos2.H - eos1.H)  # May need heat capacity integration
-   delta_S = (eos2.S - eos1.S)
-   delta_U = delta_H - (eos2.P * eos2.v - eos1.P * eos1.v)
+   # Calculate property differences using built-in methods
+   delta_h = pr_methane1.delta_h(pr_methane2)
+   delta_s = pr_methane1.delta_s(pr_methane2)
+   delta_u = pr_methane1.delta_u(pr_methane2)
+   
+   print(f"Δh = {', '.join([f'{dh: 7g}' for dh in delta_h])} J/mol")
+   print(f"Δs = {', '.join([f'{ds: 7g}' for ds in delta_s])} J/mol-K")
+   print(f"Δu = {', '.join([f'{du: 7g}' for du in delta_u])} J/mol")
 
 Available Equations of State
 -----------------------------
+
+Ideal gas
+~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from sandlercubics import IdealGasEOS
+   
+   ig = IdealGasEOS()
 
 van der Waals
 ~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   from sandlercubics.eos import VanDerWaalsEOS
+   from sandlercubics import VanDerWaalsEOS
    
-   eos = VanDerWaalsEOS(Tc=190.4, Pc=46.0, omega=0.011)
+   vdw_methane = VanDerWaalsEOS().set_compound('methane')
 
 Peng-Robinson
 ~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   from sandlercubics.eos import PengRobinsonEOS
+   from sandlercubics import PengRobinsonEOS
    
-   eos = PengRobinsonEOS(Tc=190.4, Pc=46.0, omega=0.011)
+   pr_benzene = PengRobinsonEOS().set_compound('benzene')
 
 Soave-Redlich-Kwong
 ~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   from sandlercubics.eos import SoaveRedlichKwongEOS
+   from sandlercubics import SoaveRedlichKwongEOS
    
-   eos = SoaveRedlichKwongEOS(Tc=190.4, Pc=46.0, omega=0.011)
-
-Working with Different Compounds
----------------------------------
-
-The sandlerprops database contains properties for common compounds:
-
-.. code-block:: python
-
-   from sandlerprops.properties import PropertiesDatabase
-   
-   db = PropertiesDatabase()
-   
-   # Get compound by name
-   ethane = db.get_compound('ethane')
-   propane = db.get_compound('propane')
-   water = db.get_compound('water')
-   
-   # Access critical properties
-   print(f"Ethane Tc: {ethane.Tc} K")
-   print(f"Ethane Pc: {ethane.Pc} bar")
-   print(f"Ethane ω: {ethane.Omega}")
-
-If you don't have sandlerprops installed, you can manually input critical properties from any reliable source.
+   srk_ethanol = SoaveRedlichKwongEOS().set_compound('ethanol')
 
 Next Steps
 ----------

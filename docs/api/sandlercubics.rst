@@ -14,3 +14,7 @@ Submodules
 
    sandlercubics.cli
    sandlercubics.eos
+   sandlercubics.idealgas
+   sandlercubics.pengrobinson
+   sandlercubics.soaveredlichkwong
+   sandlercubics.vanderwaals

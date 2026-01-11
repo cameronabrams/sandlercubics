@@ -8,12 +8,13 @@ All notable changes to sandlercubics will be documented in this file.
 The format is based on `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_,
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
-[0.8.0] - 2026-01-09
+[0.9.0] - 2026-01-09
 --------------------
 
 Added
 ~~~~~
 
+* `.set_compound()` method now accepts compound name strings
 * Wider combinations of degrees of freedom
 * Output of two-phase saturated states now allowed
 * Direct calculation of absolute enthalpy and entropy (T ref of 0 C, Pref of 0.1 MPa)

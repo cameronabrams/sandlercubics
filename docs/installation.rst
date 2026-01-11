@@ -12,7 +12,7 @@ sandlercubics requires:
 * NumPy
 * SciPy
 * sandlermisc (for some general utilities)
-* sandlerprops (for compound property data, only for command-line usage)
+* sandlerprops (for compound critical properties and heat-capacity data)
 
 Install from PyPI
 -----------------
@@ -24,15 +24,6 @@ The easiest way to install sandlercubics is using pip:
    pip install sandlercubics
 
 This will automatically install all required dependencies.
-
-Install with Property Database
--------------------------------
-
-To use the compound property database (recommended for most users):
-
-.. code-block:: bash
-
-   pip install sandlercubics sandlerprops
 
 Install from Source
 -------------------
@@ -64,45 +55,6 @@ Alternatively, from Python:
 
    import sandlercubics
    print(sandlercubics.__version__)
-
-Troubleshooting
----------------
-
-Import Errors
-~~~~~~~~~~~~~
-
-If you encounter import errors, make sure that:
-
-1. You have activated the correct Python environment
-2. All dependencies are installed: ``pip install numpy scipy``
-3. Your Python version is 3.7 or later: ``python --version``
-
-NumPy/SciPy Installation Issues
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-On some systems, NumPy and SciPy may require additional system libraries. If pip installation fails:
-
-**Linux (Debian/Ubuntu):**
-
-.. code-block:: bash
-
-   sudo apt-get install python3-numpy python3-scipy
-
-**macOS (with Homebrew):**
-
-.. code-block:: bash
-
-   brew install openblas
-   pip install numpy scipy
-
-**Windows:**
-
-Consider using Anaconda/Miniconda, which includes precompiled NumPy and SciPy:
-
-.. code-block:: bash
-
-   conda install numpy scipy
-   pip install sandlercubics
 
 Updating
 --------
