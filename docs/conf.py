@@ -5,6 +5,7 @@
 
 import os
 import sys
+import importlib.metadata
 
 # Add the package to the path for autodoc
 sys.path.insert(0, os.path.abspath('../src'))
@@ -17,8 +18,9 @@ copyright = '2025-2026, Cameron F. Abrams'
 author = 'Cameron F. Abrams'
 # get version from the package
 
-release = sandlercubics.__version__
-version = release  # short X.Y.Z version
+release = importlib.metadata.version(project)
+version = '.'.join(release.split('.')[:2])  # major.minor
+
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
