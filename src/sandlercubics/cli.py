@@ -254,7 +254,7 @@ def cli():
     parser = ap.ArgumentParser(
         prog='sandlercubics',
         description="Sandlercubics: A collection of computational tools using cubic equations of state based on Chemical, Biochemical, and Engineering Thermodynamics (5th edition) by Stan Sandler",
-        epilog="(c) 2025, Cameron F. Abrams <cfa22@drexel.edu>"
+        epilog="(c) 2026, Cameron F. Abrams <cfa22@drexel.edu>"
     )
     parser.add_argument(
         '-b',
