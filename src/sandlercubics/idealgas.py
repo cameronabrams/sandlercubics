@@ -44,29 +44,29 @@ class IdealGasEOS(CubicEOS):
         """ natural log of fugacity coefficient at state T and P; ideal-gas value """
         return np.array([0.0])
 
-    def solve(self, T: float = None, P: float = None, v: float = None):
-        """
-        Solve for missing property in ideal gas EOS
+    # def solve(self, T: float = None, P: float = None, v: float = None):
+    #     """
+    #     Solve for missing property in ideal gas EOS
 
-        Parameters
-        ----------
-        T : float, optional
-            Temperature
-        P : float, optional
-            Pressure
-        v : float, optional
-            Molar volume
-        """
-        if T is not None:
-            self.T = T
-        if P is not None:
-            self.P = P
-        R = self.R_pv # volumetric gas constant
-        if self.T is not None and self.P is not None:
-            pass
-        elif self.T is not None and v is not None:
-            self.P = R * self.T / v
-        elif self.P is not None and v is not None:
-            self.T = self.P * v / R
-        else:
-            raise ValueError("Insufficient information to solve ideal gas EOS.")
+    #     Parameters
+    #     ----------
+    #     T : float, optional
+    #         Temperature
+    #     P : float, optional
+    #         Pressure
+    #     v : float, optional
+    #         Molar volume
+    #     """
+    #     if T is not None:
+    #         self.T = T
+    #     if P is not None:
+    #         self.P = P
+    #     R = self.R_pv # volumetric gas constant
+    #     if self.T is not None and self.P is not None:
+    #         pass
+    #     elif self.T is not None and v is not None:
+    #         self.P = R * self.T / v
+    #     elif self.P is not None and v is not None:
+    #         self.T = self.P * v / R
+    #     else:
+    #         raise ValueError("Insufficient information to solve ideal gas EOS.")

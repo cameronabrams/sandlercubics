@@ -9,7 +9,6 @@ import numpy as np
 from importlib.metadata import version
 
 from sandlerprops.properties import PropertiesDatabase
-from sandlermisc.statereporter import StateReporter
 
 from .eos import CubicEOS
 from .idealgas import IdealGasEOS
@@ -30,6 +29,64 @@ _\ \ (_| | | | | (_| | |  __/ |
     \___|\__,_|_.__/|_|\___|___/  v""" + version("sandlercubics") + """
 
 """
+
+
+def state_subcommand(args):
+    state_kwargs = {}
+    for p in State._STATE_VAR_FIELDS.union({'x'}):
+        val = getattr(args, p)
+        if val is not None:
+            state_kwargs[p] = val
+    state = State(**state_kwargs)
+    additional_fields = ['Z', 'h_departure', 's_departure']
+    if args.show_parameters:
+        report = state.report(additional_fields=additional_fields, 
+                              parameters=['Tc', 'Pc', 'omega', 'Cp'])
+    report = state.report()
+    print(report)
+
+def delta_subcommand(args):
+    state1_kwargs = {}
+    state2_kwargs = {}
+    for p in State._STATE_VAR_FIELDS.union({'x'}):
+        val1 = getattr(args, f'{p}1')
+        val2 = getattr(args, f'{p}2')
+        if val1 is not None:
+            state1_kwargs[p] = val1
+        if val2 is not None:
+            state2_kwargs[p] = val2
+    state1 = State(**state1_kwargs)
+    state2 = State(**state2_kwargs)
+    delta_props = state1.delta(state2)
+    delta_State = StateReporter({})
+    # print('Property differences (state2 - state1):')
+    for prop in State._STATE_VAR_ORDERED_FIELDS + ['Pv']:
+        if prop in delta_props:
+            value = delta_props[prop]
+            delta_State.add_property(f'Δ{prop}', state1.get_formatter(prop).format(value.m), state1.get_default_unit(prop), fstring=None)
+    state1_report = state1.report()
+    state2_report = state2.report()
+    print(f"State-change calculations:")
+    if args.show_states:
+        print()
+        two_states = ["State 1:                       State 2:"]
+        nlines1 = len(state1_report.splitlines())
+        nlines2 = len(state2_report.splitlines())
+        nlines = max(nlines1, nlines2)
+        if nlines1 < nlines:
+            state1_report += '\n' * (nlines - nlines1 + 1)
+        if nlines2 < nlines:
+            state2_report += '\n' * (nlines - nlines2 + 1)
+        for line1, line2 in zip(state1_report.splitlines(), state2_report.splitlines()):
+            two_states.append(f"{line1:<26s}     {line2}")
+        print("\n".join(two_states))
+        print()
+        print("Property changes:")
+    print(delta_State.report())
+
+
+
+#### old below
 
 def bar_to_unit(value_in_bar: float, to_unit: str) -> float:
     """
