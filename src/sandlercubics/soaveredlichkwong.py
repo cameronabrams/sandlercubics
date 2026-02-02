@@ -4,6 +4,7 @@ from .eos import CubicEOS, sqrt_2
 from dataclasses import dataclass
 import numpy as np
 import logging
+from sandlermisc import ureg, R
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +34,23 @@ class SoaveRedlichKwongEOS(CubicEOS):
         """
         Calculates parameter a for Soave-Redlich-Kwong EOS
         """
-        return 0.42748 * self.R**2 * self.Tc**2 / self.Pc * self.alpha
+        return 0.42748 * R**2 * self.Tc**2 / self.Pc * self.alpha
     
     def _calc_b(self):
         """
         Calculates parameter b for Soave-Redlich-Kwong EOS
         """
         return 0.08664 * self.R * self.Tc / self.Pc
+
+    def _calc_P(self):
+        """
+        Calculates pressure from Soave-Redlich-Kwong EOS
+        """
+        v = self.v
+        a = self.a
+        b = self.b
+        T = self.T
+        return R * T / (v - b) - a / (v * (v + b))
 
     @property
     def cubic_coeff(self):
@@ -64,18 +75,18 @@ class SoaveRedlichKwongEOS(CubicEOS):
         Enthalpy departure at state T and P (from solution to problem 6.36 in Sandler 5th ed)
         """
         z = self.Z
-        return self.R * self.T * (z - 1) + (self.T * self.da_dT - self.a) / self.b * self.lrfrac
+        return R * self.T * (z - 1) + (self.T * self.da_dT - self.a) / self.b * self.lrfrac
 
     def _calc_s_departure(self) -> np.ndarray:
         """
         Entropy departure at state T and P (from solution to problem 6.36 in Sandler 5th ed)
         """
         z = self.Z
-        return self.R * np.log(z - self.B) + self.da_dT/self.b * self.lrfrac
+        return R * np.log(z - self.B) + self.da_dT/self.b * self.lrfrac
 
     def _calc_logphi(self) -> np.ndarray:
         """
         natural log of fugacity coefficient at state T and P (from solution to problem 6.46 in Sandler 5th ed)
         """
         z = self.Z
-        return z - 1 - np.log(z - self.B) - self.a / (self.R * self.T * self.b) * self.lrfrac
+        return z - 1 - np.log(z - self.B) - self.a / (R * self.T * self.b) * self.lrfrac

@@ -3,6 +3,7 @@ from .eos import CubicEOS
 from dataclasses import dataclass
 import numpy as np
 import logging
+from sandlermisc import ureg, R
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,16 @@ class VanDerWaalsEOS(CubicEOS):
         """
         return self.R * self.Tc / (8 * self.Pc)
 
+    def _calc_P(self):
+        """
+        Calculates pressure from Van der Waals EOS
+        """
+        v = self.v
+        a = self.a
+        b = self.b
+        T = self.T
+        return R * T / (v - b) - a / v**2
+
     @property
     def cubic_coeff(self):
         """
@@ -39,13 +50,13 @@ class VanDerWaalsEOS(CubicEOS):
         """
         Enthalpy departure for Van der Waals EOS
         """
-        return self.R * self.T * (self.Z - 1 - self.A * np.reciprocal(self.Z))
+        return R * self.T * (self.Z - 1 - self.A * np.reciprocal(self.Z))
 
     def _calc_s_departure(self) -> np.ndarray:
         """
         Entropy departure for Van der Waals EOS
         """
-        return self.R * (np.log(self.Z - self.B) - self.A / self.Z)
+        return R * (np.log(self.Z - self.B) - self.A / self.Z)
 
     def _calc_logphi(self) -> np.ndarray:
         """

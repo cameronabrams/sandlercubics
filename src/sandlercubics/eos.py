@@ -9,10 +9,10 @@ import pint
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field
-from scipy.optimize import root_scalar
+from scipy.optimize import root_scalar, brentq
 
-from sandlermisc.thermals import DeltaH_IG, DeltaS_IG, R
-from sandlermisc.thermodynamicstate import ThermodynamicState, _ureg
+from sandlermisc.thermals import DeltaH_IG, DeltaS_IG
+from sandlermisc import ThermodynamicState, ureg, R, cached_property
 from sandlerprops.compound import Compound
 from sandlerprops.properties import get_database
 
@@ -20,13 +20,30 @@ logger = logging.getLogger(__name__)
 
 sqrt_2 = np.sqrt(2)
 
-@dataclass  
+def vapor_pressure_ambrose_walton(T, Tc, Pc, omega):
+    Tr = T / Tc
+    tau = 1 - Tr
+    if tau <= 0:
+        raise ValueError(f'vapor_pressure_ambrose_walton: T={T} is above critical temperature Tc={Tc}.')
+    f0 = (-5.97616*tau + 1.29874*tau**1.5 - 0.60394*tau**2.5 
+          - 1.06841*tau**5) / Tr
+    
+    f1 = (-5.03365*tau + 1.11505*tau**1.5 - 5.41217*tau**2.5 
+          - 7.46628*tau**5) / Tr
+    
+    ln_Pr = f0 + omega * f1
+    logger.debug(f'vapor_pressure_ambrose_walton: T={T}, Tc={Tc}, Pc={Pc}, omega={omega} => Tr {Tr}, tau {tau}, f0 {f0}, f1 {f1}, ln_Pr={ln_Pr}')
+    return Pc * np.exp(ln_Pr)
+
+@dataclass
 class CubicEOS(ThermodynamicState):
     """
     Abstract class for all Cubic equations of state.
     """
     phase: str = 'unspecified' 
     """ strict phase requirement flag; 'vapor', 'liquid', 'unspecified' (multiple roots) """
+
+    name: str = 'cubic'
 
     Pc: pint.Quantity = None
     """ critical pressure """
@@ -42,10 +59,10 @@ class CubicEOS(ThermodynamicState):
 
     Z: float = None
     """ compressibility factor """
-    
-    Tref: pint.Quantity = 298.15 * _ureg.kelvin
+
+    Tref: pint.Quantity = 298.15 * ureg.kelvin
     """ reference temperature for 'absolute' internal energy, enthalpy, and entropy calculations """
-    Pref: pint.Quantity = 0.1 * _ureg.megapascal
+    Pref: pint.Quantity = 0.1 * ureg.megapascal
     """ reference pressure for 'absolute' entropy calculations, in MPa """
 
     logiter: bool = False
@@ -55,44 +72,57 @@ class CubicEOS(ThermodynamicState):
     epsilon: float = 1.e-5
     """ fugacity tolerance in phase calculations (Fig. 7.5-1 in Sandler 5th ed) """
 
-    _default_unit_map = {
-        'P': 'MPa',
-        'T': 'K',
-        'v': 'm**3 / mol',
-        'u': 'J / mol',
-        'h': 'J / mol',
-        's': 'J / (mol * K)',
-        'Pv': 'J / mol',
-    }
-
-    _pint_unit_map = {
-        P: _ureg.megapascal,
-        T: _ureg.kelvin,
-        v: _ureg.meter**3 / _ureg.mol,
-        u: _ureg.joule / _ureg.mol,
-        h: _ureg.joule / _ureg.mol,
-        s: _ureg.joule / (_ureg.mol * _ureg.kelvin),
-        Pv: _ureg.joule / _ureg.mol,
-    }
-
-    def __setattr__(self, name, value):
+    @abstractmethod
+    def _calc_P(self):
         """
-        Override __setattr__ to clear cached properties when inputs change.
+        Calculate pressure from the equation of state.  This is
+        equation-of-state specific and must be implemented in subclasses.
         """
-        super().__setattr__(name, value)
-        if name in self._PARAMETER_FIELDS:
-            self._cache['_is_complete'] = False
+        pass
 
-    def _resolve(self):
+    def _spawn_helper(self) -> CubicEOS:
+        """
+        Create a helper CubicEOS instance for internal calculations
+        """
+        # logger.debug(f'_spawn_helper: Creating helper state for {self.name}')
+        logger.debug(f'_spawn_helper: Creating helper state for {self.name} with T={self.T}, P={self.P}, Tc={self.Tc}, Pc={self.Pc}, omega={self.omega}, Cp={self.Cp}')
+        helper_state = self.__class__.simple(
+            name=f'{self.name}_helper' if self.name else 'CubicEOS_helper',
+            T=self.T,
+            P=self.P,
+            Tc=self.Tc,
+            Pc=self.Pc,
+            omega=self.omega,
+            Cp=self.Cp,
+            logiter=self.logiter,
+            maxiter=self.maxiter,
+            epsilon=self.epsilon
+        )
+        logger.debug(f'_spawn_helper: Created helper state {helper_state.name} with T={helper_state.T}, P={helper_state.P}, Tc={helper_state.Tc}, Pc={helper_state.Pc}, omega={helper_state.omega}, Cp={helper_state.Cp}')
+        return helper_state
+
+    def get_default_unit(self, field_name: str) -> pint.Unit:
+        """
+        Get the default unit for a given field
+        """
+        _default_unit_map = {
+            'P': ureg.megapascal,
+            'T': ureg.kelvin,
+            'v': ureg.meter**3 / ureg.mol,
+            'u': ureg.joule / ureg.mol,
+            'h': ureg.joule / ureg.mol,
+            's': ureg.joule / (ureg.mol * ureg.kelvin),
+        }
+        return _default_unit_map.get(field_name, ureg.dimensionless)
+
+    def resolve(self) -> bool:
         """
         Resolve all state variables from the two input variables.   This method
         is called automatically when any property assignment results
         in a fully specified state.  There should never be a situation in which
         this method is called explicitly; it is only called by __setattr__ or __post_init__.
         """
-        states_speced = list(self._cache['_input_values'].keys())
-        logger.debug(f'_resolve: State {self.name}: Attempting to resolve state with inputs: {states_speced}')
-        hasT, hasP, hasx = 'T' in states_speced, 'P' in states_speced, 'x' in states_speced
+        hasT, hasP, hasx = self._is_specified_input_var('T'), self._is_specified_input_var('P'), self._is_specified_input_var('x')
         if hasT and hasP:
             assert not hasx, f'State {self.name}: Cannot specify T, P, and x simultaneously.'
             resolved = self._resolve_TP()
@@ -107,30 +137,26 @@ class CubicEOS(ThermodynamicState):
             else: # may be saturated or unsaturated
                 resolved = self._resolve_Pop()
         elif hasx:
-            resolved = self._resolve_saturated_xop()
+            resolved = self._resolve_saturated_opx()
         else: 
             resolved = self._resolve_op_op()
         if not resolved:
-            raise ValueError(f'State {self.name}: Unable to resolve state with inputs: {states_speced}')
-        self._scalarize()
-        logger.debug(f'_resolve: State {self.name}: Successfully resolved state with inputs: {states_speced}')
-        self._cache['_is_complete'] = True
-        logger.debug(f'_resolve: State {self.name}: State resolution complete {self._cache["_is_complete"]}')
+            raise ValueError(f'State {self.name}: Unable to resolve state with inputs: {statevars_speced}')
+        return resolved
 
     def _resolve_TP(self) -> bool:
         """
         Resolve state given T and P.
         """
+        logger.debug(f'_resolve_TP: CubicEOS {self.name}: Resolving state for T={self.T}, P={self.P}')
         Zlist = self._solve_for_Z()
-        if len(Zlist) == 1:
-            Z = Zlist[0]
-            setattr(self, 'Z', Z)
-        else:
+        logger.debug(f' -> Z roots found: {Zlist}')
+        if len(Zlist) > 1:
             if self.T < self.Tc:
-                Psat = self.Psat
-                if self.P < Psat:
+                Pvap = self.Pvap
+                if self.P < Pvap:
                     setattr(self, 'Z', Zlist[0])  # vapor root
-                elif self.P >= Psat:
+                elif self.P >= Pvap:
                     setattr(self, 'Z', Zlist[1])   # liquid root
             else:  # P < Pc
                 Tsat = self.Tsat
@@ -138,249 +164,252 @@ class CubicEOS(ThermodynamicState):
                     setattr(self, 'Z', Zlist[1])   # liquid root
                 elif self.T >= Tsat:
                     setattr(self, 'Z', Zlist[0])  # vapor root
+        else:
+            setattr(self, 'Z', Zlist[0])
         return self._calculate_vhus()
 
-    def _calculate_vhus(self) -> bool:
+
+    def _calculate_op(self, op: str) -> bool:
         """
-        Resolve v, h, u, s from Z, T, P
+        Calculate other properties (v, h, u, s) from Z, T, P
         """
         vunit = self.get_default_unit('v')
         punit = self.get_default_unit('P')
         tunit = self.get_default_unit('T')
         eunit = self.get_default_unit('h')
         sunit = self.get_default_unit('s')
-        v = self.Z * R.to(punit*vunit/tunit) * self.T / self.P
-        if self.Cp is None:
-            raise ValueError("Cp data required for absolute enthalpy/entropy calculation.")
-        dH_ideal = DeltaH_IG(self.Tref.to('K'), self.T.to('K'), self.Cp).to(eunit)
-        h = self.h_departure + dH_ideal
-        dS_ideal = DeltaS_IG(self.Tref.to('K'), self.Pref.to(punit), 
+        if 'v' in op:
+            v = self.Z * R.to(punit * vunit / tunit) * self.T / self.P
+            setattr(self, 'v', v)
+        if 'h' in op or 'u' in op or 's' in op:
+            if self.Cp is None:
+                raise ValueError("Cp data required for absolute enthalpy/entropy calculation.")
+        if 'h' in op:
+            dH_ideal = DeltaH_IG(self.Tref.to('K'), self.T.to('K'), self.Cp).to(eunit)
+            h = self.h_departure + dH_ideal
+            setattr(self, 'h', h)
+            if 'u' in op:
+                Pv = (self.P * self.v).to(eunit)
+                u = h - Pv
+                setattr(self, 'u', u)
+                setattr(self, 'Pv', Pv)
+        if 'u' in op and not 'h' in op:
+            dH_ideal = DeltaH_IG(self.Tref.to('K'), self.T.to('K'), self.Cp).to(eunit)
+            Pv = (self.P * self.v).to(eunit)
+            u = h - Pv
+            setattr(self, 'u', u)
+            setattr(self, 'Pv', Pv)
+        if 's' in op:
+            dS_ideal = DeltaS_IG(self.Tref.to('K'), self.Pref.to(punit), 
                                 self.T.to('K'), self.P.to(punit), 
                                 self.Cp, R.to(eunit/tunit)).to(sunit)
-        s = self.s_departure + dS_ideal
-        Pv = (self.P * v).to(eunit)
-        u = h - Pv
-
-        setattr(self, 'v', v)
-        setattr(self, 'h', h)
-        setattr(self, 'u', u)
-        setattr(self, 's', s)
-        setattr(self, 'Pv', Pv)
-
+            s = self.s_departure + dS_ideal
+            setattr(self, 's', s)
         return True
 
+    def _calculate_hus(self) -> bool:
+        return self._calculate_op('hus')
+
+    def _calculate_vhus(self) -> bool: # T, P
+        return self._calculate_op('vhus')
+
+    def _calculate_Thus(self) -> bool: # P, v
+        punit = self.get_default_unit('P')
+        vunit = self.get_default_unit('v')
+        tunit = self.get_default_unit('T')
+        T = self.P * self.v / R.to(punit * vunit / tunit) / self.Z
+        setattr(self, 'T', T)
+        return self._calculate_hus()
+
+    def _calculate_Phus(self) -> bool: # T, v
+        punit = self.get_default_unit('P')
+        vunit = self.get_default_unit('v')
+        tunit = self.get_default_unit('T')
+        P = self.Z * R.to(punit * vunit / tunit) * self.T / self.v
+        setattr(self, 'P', P)
+        return self._calculate_hus()
+
     def _resolve_saturated_Tx(self) -> bool:
-        specs = list(self._cache['_input_values'].keys())
-        setattr(self, 'P', self.Psat)
-        Z = self._solve_for_Z()
+        if self.T > self.Tc:
+            raise ValueError(f'State {self.name}: Cannot have saturated state at temperature T={self.T} above critical temperature Tc={self.Tc}.')
+        self.P = self.Pvap
         if 0 < self.x < 1:
-            self.Liquid = CubicEOS(x=0.0, T=self.T, 
+            self.Liquid = self.__class__(x=0.0, T=self.T, phase='liquid',
                 name=f'{self.name}_L' if self.name else 'Saturated Liquid',
                 Tc=self.Tc, Pc=self.Pc, omega=self.omega, Cp=self.Cp)
-            self.Vapor = CubicEOS(x=1.0, T=self.T, 
+            self.Vapor = self.__class__(x=1.0, T=self.T, phase='vapor',
                 name=f'{self.name}_V' if self.name else 'Saturated Vapor',
                 Tc=self.Tc, Pc=self.Pc, omega=self.omega, Cp=self.Cp)
             for op in self._STATE_VAR_FIELDS - {'T', 'P', 'x'}:
                 setattr(self, op, self.x * getattr(self.Vapor, op) + (1 - self.x) * getattr(self.Liquid, op))
-            setattr(self, 'Z', None)
-        elif self.x == 1.0:
-            setattr(self, 'Z', Z[0])
-            self._calculate_vhus()
-        elif self.x == 0.0:
-            setattr(self, 'Z', Z[1])
-            self._calculate_vhus()
+            return True
+        else:
+            return self._resolve_TP()
 
     def _resolve_saturated_Px(self) -> bool:
-        specs = list(self._cache['_input_values'].keys())
-        setattr(self, 'T', self.Tsat)
-        Z = self._solve_for_Z()
+        if self.P > self.Pc:
+            raise ValueError(f'State {self.name}: Cannot have saturated state at pressure P={self.P} above critical pressure Pc={self.Pc}.')
+        self.T = self.Tsat
         if 0 < self.x < 1:
-            self.Liquid = CubicEOS(x=0.0, P=self.P, name=f'{self.name}_L' if self.name else 'Saturated Liquid', Tc=self.Tc, Pc=self.Pc, omega=self.omega, Cp=self.Cp)
-            self.Vapor = CubicEOS(x=1.0, P=self.P, name=f'{self.name}_V' if self.name else 'Saturated Vapor', Tc=self.Tc, Pc=self.Pc, omega=self.omega, Cp=self.Cp)
+            self.Liquid = self.__class__(x=0.0, P=self.P, phase='liquid', name=f'{self.name}_L' if self.name else 'Saturated Liquid', Tc=self.Tc, Pc=self.Pc, omega=self.omega, Cp=self.Cp)
+            self.Vapor = self.__class__(x=1.0, P=self.P, phase='vapor', name=f'{self.name}_V' if self.name else 'Saturated Vapor', Tc=self.Tc, Pc=self.Pc, omega=self.omega, Cp=self.Cp)
             for op in self._STATE_VAR_FIELDS - {'T', 'P', 'x'}:
                 setattr(self, op, self.x * getattr(self.Vapor, op) + (1 - self.x) * getattr(self.Liquid, op))
-        elif self.x == 1.0:
-            setattr(self, 'Z', Z[0])
-            self._calculate_vhus()
-        elif self.x == 0.0:
-            setattr(self, 'Z', Z[1])
-            self._calculate_vhus()
+            return True
+        else:
+            return self._resolve_TP()
 
     def _resolve_Top(self) -> bool:
         """
-        Resolve state given T and one other property.  Input state is set, so any state variable assignments not to the inputs will be pass-through settings.
+        Resolve state given T and one other property.
         """
         punit = self.get_default_unit('P')
-        specs = list(self._cache['_input_values'].keys())
+        specs = self.get_input_varnames()
         op = specs[0] if specs[1] == 'T' else specs[1]
-        op_value = getattr(self, op)
-        Psat = self.Psat
-        constants = {k: getattr(self, k) for k in self._PARAMETER_FIELDS }
-        satd_liquid_state = CubicEOS(x=0.0, T=self.T, name=f'{self.name}_satL', **constants)
-        satd_vapor_state = CubicEOS(x=1.0, T=self.T, name=f'{self.name}_satV', **constants)
-        op_value_sat_vapor = getattr(satd_vapor_state, op)
-        op_value_sat_liquid = getattr(satd_liquid_state, op)
-        companion_state = CubicEOS(T=self.T, P=Psat, name=f'{self.name}_companion', **constants)
-        def objective(P):
-            setattr(companion_state, 'P', P)
-            return getattr(companion_state, op) - op_value
-        if op_value > op_value_sat_vapor: # superheated vapor
-            # find P that gives desired property value at T
-
-            # P always > Psat, so all trials will be in superheated region
-            p_bracket = [Psat, self.Pc.m_as(punit)*10.0]
-        else:
-            p_bracket = [0.01 * self.Pc.m_as(punit), Psat]
-
-        sol = root_scalar(objective, bracket=p_bracket, method='bisect', xtol=self.epsilon, maxiter=self.maxiter)
-        if not sol.converged:
-            raise ValueError(f'State {self.name}: Unable to converge to solve for P in unsaturated region given T and {op}.')
-        setattr(self, 'P', sol.root * punit)
-        for var in self._STATE_VAR_FIELDS - {'T', 'P', 'x', op}:
-            setattr(self, var, getattr(companion_state, var))
+        if op == 'v':
+            self.P = self._calc_P()
+            self.Z = self.P * self.v / (R * self.T)
+            self._calculate_hus()
+            return True
+        bounds = (0.01 * self.Pc.m_as(punit), self.Pc.m_as(punit)*10.0)
+        op_value_target = getattr(self, op)
+        self.swap_input_vars(op, 'P')
+        def residual(P_guess):
+            self.P = P_guess
+            self._resolve_TP()
+            op_value_current = getattr(self, op)
+            return op_value_current.m - op_value_target.m
+        P_solution = brentq(residual, bounds[0], bounds[1], xtol=1e-6)
+        self.P = P_solution
+        self._resolve_TP()
+        self.swap_input_vars('P', op)
         return True
 
     def _resolve_Pop(self) -> bool:
         tunit = self.get_default_unit('T')
-        specs = list(self._cache['_input_values'].keys())
+        specs = self.get_input_varnames()
         op = specs[0] if specs[1] == 'P' else specs[1]
-        op_value = getattr(self, op)
-        Tsat = self.Tsat
-        constants = {k: getattr(self, k) for k in self._PARAMETER_FIELDS }
-        satd_liquid_state = CubicEOS(x=0.0, P=self.P, name=f'{self.name}_satL', **constants)
-        satd_vapor_state = CubicEOS(x=1.0, P=self.P, name=f'{self.name}_satV', **constants)
-        op_value_sat_vapor = getattr(satd_vapor_state, op)
-        op_value_sat_liquid = getattr(satd_liquid_state, op)
-        companion_state = CubicEOS(P=self.P, name=f'{self.name}_companion', **constants)
-        def objective(T):
-            setattr(companion_state, 'T', T)
-            return getattr(companion_state, op) - op_value
-        if op_value > op_value_sat_vapor: # superheated vapor
-            # find T that gives desired property value at P
-            # T always > Tsat, so all trials will be in superheated region
-            t_bracket = [Tsat.m_as(tunit), self.Tc.m_as(tunit)*5.0]
-        else:
-            t_bracket = [0.5 * self.Tc.m_as(tunit), Tsat.m_as(tunit)]
+        bounds = (0.25 * self.Tc.m_as(tunit), self.Tc.m_as(tunit)*5.0)
+        op_value_target = getattr(self, op)
+        self.swap_input_vars(op, 'T')
+        def residual(T_guess):
+            self.T = T_guess
+            self._resolve_TP()
+            op_value_current = getattr(self, op)
+            return op_value_current.m - op_value_target.m
+        T_solution = brentq(residual, bounds[0], bounds[1], xtol=1e-6)
+        self.T = T_solution
+        self._resolve_TP()
+        self.swap_input_vars('T', op)
+        return True
 
-        sol = root_scalar(objective, bracket=t_bracket, method='bisect', xtol=self.epsilon, maxiter=self.maxiter)
-        if not sol.converged:
-            raise ValueError(f'State {self.name}: Unable to converge to solve for T in unsaturated region given P and {op}.')
-        setattr(self, 'T', sol.root * tunit)
-        for var in self._STATE_VAR_FIELDS - {'T', 'P', 'x', op}:
-            setattr(self, var, getattr(companion_state, var))
-
-    def _resolve_saturated_xop(self) -> bool:
-        specs = list(self._cache['_input_values'].keys())
+    def _resolve_saturated_opx(self) -> bool:
+        tunit = self.get_default_unit('T')
+        specs = self.get_input_varnames()
         op = specs[0] if specs[1] == 'x' else specs[1]
         op_value = getattr(self, op)
-        constants = {k: getattr(self, k) for k in self._PARAMETER_FIELDS }
-        companion_state = CubicEOS(x=self.x, name=f'{self.name}_companion', **constants)
-        def objective(T):
-            setattr(companion_state, 'T', T)
-            return getattr(companion_state, op) - op_value
-        T_bracket = [0.5 * self.Tc.m_as('K'), self.Tc.m_as('K')]
-        sol = root_scalar(objective, bracket=T_bracket, method='bisect', xtol=self.epsilon, maxiter=self.maxiter)
-        if not sol.converged:
-            raise ValueError(f'State {self.name}: Unable to converge to solve for T in saturated region given x and {op}.')
-        setattr(self, 'T', sol.root * _ureg.kelvin)
-        self.Liquid = CubicEOS(x=0.0, T=self.T, name=f'{self.name}_L' if self.name else 'Saturated Liquid', **constants)
-        self.Vapor = CubicEOS(x=1.0, T=self.T, name=f'{self.name}_V' if self.name else 'Saturated Vapor', **constants)
-        for var in self._STATE_VAR_FIELDS - {'T', 'P', 'x', op}:
-            setattr(self, var, self.x * getattr(self.Vapor, var) + (1 - self.x) * getattr(self.Liquid, var))
+        self.swap_input_vars(op, 'T')
+        bounds = (self.Tc.m_as(tunit)*0.3, self.Tc.m_as(tunit)*0.95)
+        def residual(T_guess):
+            self.T = T_guess
+            self._resolve_saturated_Tx()
+            op_value_current = getattr(self, op)
+            logger.debug(f'_resolve_saturated_opx: T_guess={T_guess}, op={op}, op_value_current={op_value_current}, op_value_target={op_value}')
+            return op_value_current.m - op_value.m
+        if op == 's':
+            r1 = residual(bounds[0])
+            r2 = residual(bounds[1])
+            niter = 0
+            while r1 * r2 > 0:
+                bounds = (bounds[0] + 10.0, bounds[1])
+                r1 = residual(bounds[0])
+                r2 = residual(bounds[1])
+                niter += 1
+                if niter > 20:
+                    raise ValueError(f'State {self.name}: Unable to bracket root for saturated {op}={op_value} after {niter} iterations.')
+            logger.debug(f'_resolve_saturated_opx: Needed {niter} expansions of bounds to find sign change.')
+        T_solution = brentq(residual, bounds[0], bounds[1], xtol=1e-6)
+        self.T = T_solution
+        self._resolve_saturated_Tx()
+        self.swap_input_vars('T', op)
         return True
 
     def _resolve_op_op(self) -> bool:
-        specs = list(self._cache['_input_values'].keys())
+        specs = self.get_input_varnames()
         op1, op2 = specs[0], specs[1]
         op1_value = getattr(self, op1)
         op2_value = getattr(self, op2)
-        constants = {k: getattr(self, k) for k in self._PARAMETER_FIELDS}
-        companion_state = CubicEOS(name=f'{self.name}_companion', T=T, **constants)
-        def objective(T):
-            setattr(companion_state, op1, op1_value)
-            companion_op2_value = getattr(companion_state, op2)
-            return companion_op2_value - op2_value
-        T_bracket = [0.5 * self.Tc.m_as('K'), self.Tc.m_as('K')*5.0]
-        sol = root_scalar(objective, bracket=T_bracket, method='bisect', xtol=self.epsilon, maxiter=self.maxiter)
-        if not sol.converged:
-            raise ValueError(f'State {self.name}: Unable to converge to solve for T in unsaturated region given {op1} and {op2}.')
-        setattr(self, 'T', sol.root * _ureg.kelvin)
-        for var in self._STATE_VAR_FIELDS - {'T', op1, op2}:
-            companion_var_value = getattr(companion_state, var)
-            setattr(self, var, companion_var_value)
-        setattr(self, 'Z', companion_state.Z)
+        self.swap_input_vars(op1, 'T')
+        bounds = (0.25 * self.Tc.m_as(self.get_default_unit('T')), self.Tc.m_as(self.get_default_unit('T'))*5.0)
+        def residual(T_guess):
+            self.T = T_guess
+            self._resolve_Top()
+            op2_value_current = getattr(self, op2)
+            return op2_value_current.m - op2_value.m
+        T_solution = brentq(residual, bounds[0], bounds[1], xtol=1e-6)
+        self.T = T_solution
+        self._resolve_Top()
+        self.swap_input_vars('T', op1)
+        return True
 
     @abstractmethod
     def _calc_a(self):
+        """
+        Calculate the van der Waals a parameter.  This is equation-of-state specific
+        and must be implemented in subclasses.
+        """
         pass
 
-    @property
+    @cached_property
     def a(self):
-        """ van der Waals a parameter """
-        if not 'a' in self._cache: # cache was cleared on an input change
-            self._cache['a'] = self._calc_a()
-            self._input_state = self._get_current_input_state()  # Save state
-        return self._cache['a']
+        """
+        van der Waals a parameter, and a cached property.  This method should not need to be further
+        overridden in subclasses.
+        """
+        pass
     
+    @abstractmethod
     def _calc_da_dT(self):
-        return 0.0
+        """
+        Returns the derivative of vdW a parameter wrt temperature.  This is
+        equation-of-state specific and must be implemented in subclasses.
+        """
+        pass
 
-    @property
+    @cached_property
     def da_dT(self):
-        """ derivative of vdW a parameter wrt temperature """
-        if not 'da_dT' in self._cache:
-            self._cache['da_dT'] = self._calc_da_dT()
-            self._input_state = self._get_current_input_state()  # Save state
-        return self._cache['da_dT']
+        pass
 
     @abstractmethod
     def _calc_b(self):
         pass
 
-    @property
+    @cached_property
     def b(self):
-        """ van der Waals b parameter """
-        if not 'b' in self._cache:
-            self._cache['b'] = self._calc_b()
-            self._input_state = self._get_current_input_state()  # Save state
-        return self._cache['b']
-    
-    @property
-    def A(self):
-        """ dimensionless vdW a parameter aP/(R^2 T^2) """
-        if not 'A' in self._cache:
-            self._cache['A'] = self.a * self.P / (self.R * self.T)**2
-            self._input_state = self._get_current_input_state()  # Save state
-        return self._cache['A']
+        pass
 
-    @property
+    def _calc_A(self):
+        return self.a * self.P / (R * self.T)**2
+
+    @cached_property
+    def A(self):
+        pass
+
+    def _calc_B(self):
+        return self.b * self.P / (R * self.T)
+
+    @cached_property
     def B(self):
-        """ dimensionless vdW b parameter bP/(RT) """
-        if not 'B' in self._cache:
-            self._cache['B'] = self.b * self.P / (self.R * self.T)
-            self._input_state = self._get_current_input_state()  # Save state
-        return self._cache['B']
+        pass
 
     @property
     @abstractmethod
     def cubic_coeff(self):
-        """ coefficients of cubic equation for compressibility factor Z """
+        """
+        Coefficients of cubic equation for compressibility factor Z. These are 
+        equation-of-state specific and must be implemented in subclasses.
+        """
         pass
-
-    @property
-    def Z(self) -> np.ndarray:
-        """
-        Computes or retrieves compressibility factor(s) at current state T and P.
-
-        Returns
-        -------
-        np.ndarray
-            Compressibility factor(s) at current state T and P
-        """
-        if 'Z' not in self._cache:
-            self._cache['Z'] = self._solve_for_Z()
-            self._input_state = self._get_current_input_state()  # Save state
-        return self._cache['Z']
 
     def _solve_for_Z(self) -> np.ndarray:
         """
@@ -405,547 +434,167 @@ class CubicEOS(ThermodynamicState):
                 Z = np.array([real_roots[0], real_roots[2]]) # sorted by numpy.roots
         return Z
 
-    # @property
-    # def v(self) -> np.ndarray:
-    #     """
-    #     Computes or retrieves molar volume(s) at current state T and P.
-        
-    #     Returns
-    #     -------
-    #     np.ndarray
-    #         Molar volume(s) at current state T and P
-    #     """
-    #     if not 'v' in self._cache:
-    #         self._cache['v'] = self.Z * self.R_pv * self.T / self.P
-    #         self._input_state = self._get_current_input_state()  # Save state
-    #     return self._cache['v']
-
     @abstractmethod
-    def _calc_h_departure(self) -> np.ndarray:
+    def _calc_h_departure(self) -> float:
         """
-        Calculate the enthalpy departure at state T and P.
+        Calculate the enthalpy departure at state T and P.  This is equation-of-state specific 
+        and must be implemented in subclasses.
         """
         pass
 
-    @property
-    def h_departure(self) -> np.ndarray:
-        """
-        Computes or retrieves enthalpy departure at current state T and P.
-
-        Returns
-        -------
-        np.ndarray
-            Enthalpy departure at current state T and P
-        """
-        if not 'h_departure' in self._cache:
-            self._cache['h_departure'] = self._calc_h_departure()
-            self._input_state = self._get_current_input_state()  # Save state
-        return self._cache['h_departure']
+    @cached_property
+    def h_departure(self) -> float:
+        pass
 
     @abstractmethod
-    def _calc_s_departure(self) -> np.ndarray:
+    def _calc_s_departure(self) -> float:
         """
-        Calculate the entropy departure at state T and P.
+        Calculate the entropy departure at state T and P.  This is equation-of-state specific 
+        and must be implemented in subclasses.
         """
         pass
 
-    @property
-    def s_departure(self) -> np.ndarray:
-        """
-        Computes or retrieves entropy departure at current state T and P.
-        
-        Returns
-        -------
-        np.ndarray
-            Entropy departure at current state T and P
-        """
-        if not 's_departure' in self._cache:
-            self._cache['s_departure'] = self._calc_s_departure()
-            self._input_state = self._get_current_input_state()  # Save state
-        return self._cache['s_departure']
+    @cached_property
+    def s_departure(self) -> float:
+        pass
     
     @abstractmethod
-    def _calc_logphi(self) -> np.ndarray:
+    def _calc_logphi(self) -> float:
         """
         Calculate the natural log of fugacity coefficient at state T and P.
+        This is equation-of-state specific and must be implemented in subclasses.
         """
         pass
 
-    @property
-    def logphi(self) -> np.ndarray:
-        """
-        Computes or retrieves the natural log of fugacity coefficient at current state T and P.
-
-        Returns
-        -------
-        np.ndarray
-            Natural log of fugacity coefficient(s) at current state T and P
-        """
-        if not 'logphi' in self._cache:
-            self._cache['logphi'] = self._calc_logphi()
-            self._input_state = self._get_current_input_state()  # Save state
-        return self._cache['logphi']
+    @cached_property
+    def logphi(self) -> float:
+        pass
     
-    @property
-    def phi(self) -> np.ndarray:
+    def _calc_phi(self) -> float:
         """
-        Computes or retrieves fugacity coefficient(s) at current state T and P.
-        
-        Returns
-        -------
-        np.ndarray
-            Fugacity coefficient(s) at current state T and P
+        Calculate fugacity coefficient(s) at current state T and P.
         """
-        if not 'phi' in self._cache:
-            self._cache['phi'] = np.exp(self.logphi)
-        return self._cache['phi']
+        return np.exp(self.logphi)
 
-    @property
-    def f(self) -> np.ndarray:
-        """
-        Computes or retrieves fugacity/fugacities at current state T and P.
+    @cached_property
+    def phi(self) -> float:
+        pass
 
-        Returns
-        -------
-        np.ndarray
-            Fugacity/fugacities at current state T and P
+    def _calc_f(self) -> float:
         """
-        if not 'f' in self._cache:
-            self._cache['f'] = self.phi * self.P
-        return self._cache['f']
+        Calculate fugacity/fugacities at current state T and P.
+        """
+        return self.phi * self.P
 
-    @property
+    @cached_property
+    def f(self) -> float:
+        pass
+
+    @cached_property
     def Pvap(self) -> float:
-        """ 
-        Computes or retrieves vapor pressure at current state temperature.  If not calculable, returns np.nan.
-        Implements algorithm in Fig. 7.5-1 of Sandler 5th ed.
-        """
-        if not 'pvap' in self._cache:
-            if self.Pc is None or self.Tc is None:
-                self._cache['pvap'] = np.nan
-                return self._cache['pvap']
-            tmp = self.clone()
-            tmp.P = tmp.Pc * (tmp.T / tmp.Tc)**8
-            pu = self.R._capitalizations.get(self.pressure_unit, self.pressure_unit)
-            logger.debug(f'Initial Pvap guess: {tmp.P:.6f} {pu} at T {tmp.T:.6f} (Tc {tmp.Tc:.6f}): f {tmp.f}')
-            keepgoing = True
-            i = 0
-            while keepgoing:
-                i += 1
-                try:
-                    fV, fL = tmp.f
-                except:
-                    # raise ValueError(f'Pvap calc error: T {tmp.T:.2f}, P {tmp.P:.2f} {pu}, Tc {tmp.Tc:.2f}, Pc {tmp.Pc:.2f} {pu}')
-                    self._cache['pvap'] = np.nan
-                    return self._cache['pvap']
-                err = np.abs(fL / fV - 1)
-                if tmp.logiter: logger.debug(f'Pvap: Iter {i}: P {tmp.P:.6f} {pu}, fV {fV:.6f}, fL {fL:.6f}; error {err:.4e}')
-                tmp.P *= fL / fV
-                if err < tmp.epsilon or i == tmp.maxiter:
-                    keepgoing = False
-                if i >= tmp.maxiter:
-                    logger.warning(f'Reached {i} iterations without convergence; error {err:.4e}')
-            self._cache['pvap'] = tmp.P
-        return self._cache['pvap']
+        pass
+
+    def z_helpers(self, hV: CubicEOS, hL: CubicEOS):
+        Zlist = hV._solve_for_Z()
+        logger.debug(f'z_helpers: Z roots found: {Zlist}')
+        ZV, ZL = Zlist[0], Zlist[1]
+        hV.Z = ZV
+        hL.Z = ZL
+        logger.debug(f'z_helpers: ZV {ZV:.6f}, ZL {ZL:.6f}')
+
+    def _calc_Pvap(self) -> float:
+        hV = self._spawn_helper()
+        hL = self._spawn_helper()
+        hV.P = (vapor_pressure_ambrose_walton(self.T.m_as('K'), self.Tc.m_as('K'), self.Pc.m_as('Pa'), self.omega) * ureg.pascal).to(self.get_default_unit('P'))
+        logger.debug(f'Initial Pvap guess: {hV.P:.6f} at T {hV.T:.6f} (Pc {hV.Pc:.6f}, Tc {hV.Tc:.6f})')
+        hV.T = self.T
+        while len(hV._solve_for_Z()) < 2:
+            logger.debug(f'Pvap initial guess too low; increasing P guess from {hV.P:.6f} to {hV.P*1.05:.6f}')
+            hV.P *= 1.05
+        hL.P = hV.P
+        hL.T = hV.T
+        logger.debug(f'Initial Pvap guess: {hV.P:.6f} at T {hV.T:.6f} (Pc {hV.Pc:.6f}, Tc {hV.Tc:.6f})')
+        keepgoing = True
+        i = 0
+        while keepgoing:
+            self.z_helpers(hV, hL)
+            i += 1
+            try:
+                fV, fL = hV.f, hL.f
+            except:
+                return np.nan
+            err = np.abs(fL / fV - 1)
+            if hV.logiter: logger.debug(f'Pvap: Iter {i}: P {hV.P:.6f}, fV {fV:.6f}, fL {fL:.6f}; error {err:.4e}')
+            hV.P *= fL / fV
+            hL.P = hV.P
+            if err < hV.epsilon or i == hV.maxiter:
+                keepgoing = False
+            if i >= hV.maxiter:
+                logger.warning(f'Reached {i} iterations without convergence; error {err:.4e}')
+        return hV.P
     
-    @property
+    def _calc_Hvap(self) -> float:
+        hV = self._spawn_helper()
+        hV.T = self.T
+        hV.P = self.Pvap
+        hL = self._spawn_helper()
+        hL.T = self.T
+        hL.P = hV.P
+        self.z_helpers(hV, hL)
+        return hV.h_departure - hL.h_departure
+
+    @cached_property
     def Hvap(self) -> float:
-        """ 
-        Computes or retrieves enthalpy of vaporization at current state temperature.
-
-        Returns
-        -------
-        float
-            Enthalpy of vaporization at current state temperature. If not calculable, returns np.nan.
-        """
-        if not 'hvap' in self._cache:
-            satd_clone = self.clone()
-            satd_clone.P = self.Pvap
-            if not np.isnan(satd_clone.P):
-                self._cache['hvap'] = satd_clone.h_departure[0] - satd_clone.h_departure[1]
-            else:
-                self._cache['hvap'] = np.nan
-        return self._cache['hvap']
+        pass
     
-    @property
+    def _calc_Svap(self) -> float:
+        hV = self._spawn_helper()
+        hV.T = self.T
+        hV.P = self.Pvap
+        hL = self._spawn_helper()
+        hL.T = self.T
+        hL.P = hV.P
+        self.z_helpers(hV, hL)
+        return hV.s_departure - hL.s_departure
+
+    @cached_property
     def Svap(self) -> float:
-        """ 
-        Computes or retrieves entropy of vaporization at current state temperature.
+        pass
 
-        Returns
-        -------
-        float
-            Entropy of vaporization at current state temperature.  If not calculable, returns np.nan.
-        """
-        if not 'svap' in self._cache:
-            satd_clone = self.clone()
-            satd_clone.P = self.Pvap
-            if not np.isnan(satd_clone.P):
-                self._cache['svap'] = satd_clone.s_departure[0] - satd_clone.s_departure[1]
-            else:
-                self._cache['svap'] = np.nan
-        return self._cache['svap']
+    def _calc_Tsat(self) -> float:
+        hV = self._spawn_helper()
+        hL = self._spawn_helper()
+        hV.P = self.P
+        hV.T = hV.Tc * (hV.P / hV.Pc)**0.125
+        while len(hV._solve_for_Z()) < 2:
+            logger.debug(f'Tsat initial guess too high; decreasing T guess from {hV.T:.6f} to {hV.T*0.95:.6f}')
+            hV.T *= 0.95
+        hL.P = hV.P
+        hL.T = hV.T
+        logger.debug(f'Initial Tsat guess: {hL.T:.6f} at {hL.P:.6f} (Pc {hL.Pc:.6f}, Tc {hL.Tc:.6f})')
+        keepgoing = True
+        i = 0
+        while keepgoing:
+            self.z_helpers(hV, hL)
+            i += 1
+            try:
+                fV, fL = hV.f, hL.f
+            except:
+                # raise ValueError(f'Error in fugacity calculation in Tsat at T {hL.T:.2f}, P {hL.P:.2f} {pu}')
+                return np.nan
+            err = np.abs(fV / fL - 1)
+            if hL.logiter: logger.debug(f'Tsat: Iter {i}: T {hL.T:.6f}, fV {fV:.6f}, fL {fL:.6f}; error {err:.4e}')
+            hV.T *= (fV / fL)**0.125
+            hL.T = hV.T
+            if err < hL.epsilon or i == hL.maxiter:
+                keepgoing = False
+            if i == hL.maxiter:
+                logger.warning(f'Reached {i} iterations without convergence; error {err:.4e}')
+        return hV.T
 
-    @property
+    @cached_property
     def Tsat(self) -> float:
-        """ 
-        Computes or retrieves saturation temperature at state pressure.
-        
-        Returns
-        -------
-        float
-            Saturation temperature at state pressure.  If not calculable, returns np.nan.
-        """
-        if not 'Tsat' in self._cache:
-            tmp = self.clone()
-            if self.Pc is None or self.Tc is None:
-                self._cache['Tsat'] = np.nan
-                return self._cache['Tsat']
-            tmp.T = tmp.Tc * (tmp.P / tmp.Pc)**0.125
-            pu = self.R._capitalizations.get(self.pressure_unit, self.pressure_unit)
-            logger.debug(f'Initial Tsat guess: {tmp.T:.6f} at P {tmp.P:.6f} {pu}')
-            keepgoing = True
-            i = 0
-            while keepgoing:
-                i += 1
-                try:
-                    fV, fL = tmp.f
-                except:
-                    # raise ValueError(f'Error in fugacity calculation in Tsat at T {tmp.T:.2f}, P {tmp.P:.2f} {pu}')
-                    self._cache['Tsat'] = np.nan
-                    return self._cache['Tsat']
-                err = np.abs(fV / fL - 1)
-                if tmp.logiter: logger.debug(f'Tsat: Iter {i}: T {tmp.T:.6f}, fV {fV:.6f} {pu}, fL {fL:.6f} {pu}; error {err:.4e}')
-                tmp.T *= (fV / fL)**0.125
-                if err < tmp.epsilon or i == tmp.maxiter:
-                    keepgoing = False
-                if i == tmp.maxiter:
-                    logger.warning(f'Reached {i} iterations without convergence; error {err:.4e}')
-            self._cache['Tsat'] = tmp.T
-        return self._cache['Tsat']
-
-    # def unit_consistency(self, other: CubicEOS):
-    #     consistent = self.pressure_unit == other.pressure_unit and self.volume_unit == other.volume_unit
-    #     if not consistent:
-    #         raise ValueError('inconsistent units')
-
-    # @property
-    # def h(self) -> np.ndarray:
-    #     """
-    #     Computes absolute enthalpy at state T and P
-        
-    #     Returns
-    #     -------
-    #     np.ndarray
-    #         Absolute enthalpy/enthalpies at state T and P
-    #     """
-    #     if self.Cp is None:
-    #         raise ValueError("Cp data required for absolute enthalpy calculation.")
-    #     dH_ideal = DeltaH_IG(self.Tref, self.T, self.Cp)
-    #     logger.debug(f'dh_ideal: {dH_ideal} for Tref {self.Tref} to T {self.T} with Cp {self.Cp}')
-    #     return self.h_departure + dH_ideal
-
-    # @property
-    # def u(self) -> np.ndarray:
-    #     """
-    #     Computes absolute internal energy at state T and P
-        
-    #     Returns
-    #     -------
-    #     np.ndarray
-    #         Absolute internal energy/energies at state T and P
-    #     """
-    #     if self.Cp is None:
-    #         raise ValueError("Cp data required for absolute internal energy calculation.")
-    #     # u = h - pv
-    #     return self.h - self.Pv
-
-    # @property
-    # def s(self) -> np.ndarray:
-    #     """
-    #     Computes absolute entropy at state T and P
-        
-    #     Returns
-    #     -------
-    #     np.ndarray
-    #         Absolute entropy/entropies at state T and P
-    #     """
-    #     if self.Cp is None:
-    #         raise ValueError("Cp data required for absolute entropy calculation.")
-    #     # make sure Pref_local is in correct units (same as self.P)
-    #     dS_ideal = DeltaS_IG(self.Tref, self.Pref_local, self.T, self.P, self.Cp, self.R)
-    #     return self.s_departure + dS_ideal
-
-    # def delta_h(self, other: CubicEOS) -> np.ndarray:
-    #     """
-    #     Computes and returns enthalpy change from self to other state
-    #     """
-    #     self.unit_consistency(other)
-    #     return other.h - self.h
-
-    # def delta_s(self, other: CubicEOS) -> np.ndarray:
-    #     """
-    #     Computes and returns entropy change from self to other state
-    #     """
-    #     self.unit_consistency(other)
-    #     return other.s - self.s
-    
-    # def delta_pv(self, other: CubicEOS) -> np.ndarray:
-    #     """
-    #     Returns Delta(PV) in thermal (not PV) units 
-    #     """
-    #     self.unit_consistency(other)
-    #     return (other.Pv - self.Pv) * self.R / self.R_pv
-    
-    # def delta_u(self, other: CubicEOS) -> np.ndarray:
-    #     """
-    #     Returns Delta(U) (internal energy)
-    #     """
-    #     return self.delta_h(other) - self.delta_pv(other)
-        
-    # def _check_saturation(self, specs: dict[str, float | pint.Quantity]) -> bool:
-    #     """
-    #     """
-
-    #     if 'x' in specs:
-    #         """ A vapor fraction was specified as input """
-    #         return True
-
-    #     p, op = None, None
-    #     hasT, hasP = 'T' in specs, 'P' in specs
-    #     has_only_T_or_P = hasT ^ hasP
-    #     if hasT and has_only_T_or_P:
-    #         p, v = 'T', self.T
-    #         if v > self.Tc:
-    #             return False
-    #         op = specs[0] if specs[1] == v else specs[1]
-    #         pcomp, pcomp_satd = 'P', self.Pvap
-    #     elif hasP and has_only_T_or_P:
-    #         p, v = 'P', self.P
-    #         if v > self.Pc:
-    #             return False
-    #         pcomp, pcomp_satd = 'T', self.Tsat
-    #         op = specs[0] if specs[1] == v else specs[1]
-
-    #     if p is not None and op is not None:
-    #         # Either T or P, and one other property from h, u, v, s is specified
-
-
-
-    #         if p is None or np.isnan(p):
-    #             return False
-    #         # check if specified variable equals saturation value within tolerance
-    #         tol = 1e-6 * p.m_as(op.units)
-    #         return np.abs(op.m_as(op.units) - p.m_as(op.units)) < tol
-
-
-    #     satd_clone = self.clone()
-    #     if satd_clone.T is not None:
-    #         satd_clone.P = self.Pvap
-    #     elif satd_clone.P is not None:
-    #         satd_clone.T = self.Tsat
-    #     if v is not None:
-    #         vV, vL = satd_clone.v
-    #         return (v - vL) / (vV - vL)
-    #     elif h is not None:
-    #         hV, hL = satd_clone.h
-    #         return (h - hL) / (hV - hL)
-    #     elif s is not None:
-    #         sV, sL = satd_clone.s
-    #         return (s - sL) / (sV - sL)
-    #     elif u is not None:
-    #         uV, uL = satd_clone.u
-    #         return (u - uL) / (uV - uL)
-    #     else:
-    #         raise ValueError("One of v, h, s, or u must be provided to determine vapor fraction.")
-
-    # def P_solve(self, P_bracket: list[float] = None, v: float = None, h: float = None, s: float = None, u: float = None):
-    #     """
-    #     Solve for pressure given T and one other property (v, h, s, u). Stores result in self.P.
-
-    #     Parameters
-    #     ----------
-    #     P_bracket: list[float]
-    #         Bracket [P_low, P_high] for root finding
-    #     v: float
-    #         Molar volume
-    #     h: float
-    #         Enthalpy
-    #     s: float
-    #         Entropy
-    #     u: float
-    #         Internal energy
-    #     """
-    #     if v is not None:
-    #         def objective(P):
-    #             self.P = P
-    #             logger.debug(f'Objective eval: P={P}, v={self.v}, target v={v}')
-    #             # pick the root closest to target v
-    #             v_diffs = np.abs(self.v - v)
-    #             v_closest = self.v[np.argmin(v_diffs)]
-    #             return v - v_closest
-    #     elif h is not None:
-    #         def objective(P):
-    #             self.P = P
-    #             logger.debug(f'Objective eval: P={P}, h={self.h}, target h={h}')
-    #                 # pick the root closest to target h
-    #             h_diffs = np.abs(self.h - h)
-    #             h_closest = self.h[np.argmin(h_diffs)]
-    #             return h - h_closest
-    #     elif s is not None:
-    #         def objective(P):
-    #             self.P = P
-    #             logger.debug(f'Objective eval: P={P}, s={self.s}, target s={s}')
-    #             # pick the root closest to target s
-    #             s_diffs = np.abs(self.s - s)
-    #             s_closest = self.s[np.argmin(s_diffs)]
-    #             return s - s_closest
-    #     elif u is not None:
-    #         def objective(P):
-    #             self.P = P
-    #             logger.debug(f'Objective eval: P={P}, u={self.u}, target u={u}')
-    #             # pick the root closest to target u
-    #             u_diffs = np.abs(self.u - u)
-    #             u_closest = self.u[np.argmin(u_diffs)]
-    #             return u - u_closest
-    #     else:
-    #         raise ValueError("One of v, h, s, or u must be provided to solve for pressure.")
-    #     res = root_scalar(objective, bracket=P_bracket)
-    #     self.P = res.root
-
-    # def T_solve(self, T_bracket: list[float] = None, v: float = None, h: float = None, s: float = None, u: float = None):
-    #     """
-    #     Solve for temperature given P and one other property (v, h, s, u). Stores result in self.T.
-
-    #     Parameters
-    #     ----------
-    #     T_bracket: list[float]
-    #         Bracket [T_low, T_high] for root finding
-    #     v: float
-    #         Molar volume
-    #     h: float
-    #         Enthalpy
-    #     s: float
-    #         Entropy
-    #     u: float
-    #         Internal energy
-    #     """
-    #     if v is not None:
-    #         def objective(T):
-    #             self.T = T
-    #             logger.debug(f'Objective eval: T={T}, v={self.v}, target v={v}')
-    #             # pick the root closest to target v
-    #             v_diffs = np.abs(self.v - v)
-    #             v_closest = self.v[np.argmin(v_diffs)]
-    #             return v - v_closest
-    #     elif h is not None:
-    #         def objective(T):
-    #             self.T = T
-    #             logger.debug(f'Objective eval: T={T}, h={self.h}, target h={h}')
-    #             # pick the root closest to target h
-    #             h_diffs = np.abs(self.h - h)
-    #             h_closest = self.h[np.argmin(h_diffs)]
-    #             return h - h_closest
-    #     elif s is not None:
-    #         def objective(T):
-    #             self.T = T
-    #             logger.debug(f'Objective eval: T={T}, s={self.s}, target s={s}')
-    #             # pick the root closest to target s
-    #             s_diffs = np.abs(self.s - s)
-    #             s_closest = self.s[np.argmin(s_diffs)]
-    #             return s - s_closest
-    #     elif u is not None:
-    #         def objective(T):
-    #             self.T = T
-    #             logger.debug(f'Objective eval: T={T}, u={self.u}, target u={u}')
-    #             # pick the root closest to target u
-    #             u_diffs = np.abs(self.u - u)
-    #             u_closest = self.u[np.argmin(u_diffs)]
-    #             return u - u_closest
-    #     else:
-    #         raise ValueError("One of v, h, s, or u must be provided to solve for temperature.")
-
-    #     res = root_scalar(objective, bracket=T_bracket)
-    #     self.T = res.root
-
-    # def solve(self, T: float = None, P: float = None, v: float = None, h: float = None, s: float = None, u: float = None):
-    #     """
-    #     Solve for the missing state variable given two of T, P, v, h, s, u.
-    #     Updates the object's state variables accordingly.
-
-    #     Parameters
-    #     ----------
-    #     T: float
-    #         Temperature
-    #     P: float
-    #         Pressure
-    #     v: float
-    #         Molar volume
-    #     h: float
-    #         Enthalpy
-    #     s: float
-    #         Entropy
-    #     u: float
-    #         Internal energy
-    #     """
-    #     num_specified = sum(var is not None for var in [T, P, v, h, s, u])
-    #     if num_specified != 2:
-    #         raise ValueError("Exactly two of T, P, v, h, s, or u must be specified.")
-        
-    #     self.T = T
-    #     self.P = P
-
-    #     # Calculate the missing variable using the EOS
-    #     if self.T is not None and self.P is not None:
-    #         pass # all properties can be retrieved now
-    #     elif self.P is None: # T and one other property (not P) is set
-    #         if self.T < self.Tc:
-    #             x = self.two_phase_check(v=v, h=h, s=s, u=u)
-    #             if 0 < x < 1:
-    #                 self.x = x
-    #                 self.P = self.Pvap
-    #                 # done.  All properties can be retrieved now.
-    #                 return
-    #             elif x < 0:
-    #                 # subcooled liquid
-    #                 Plo = self.Pvap
-    #                 Phi = self.Pc
-    #                 phase = 'liquid'
-    #             else:
-    #                 # superheated vapor
-    #                 Phi = self.Pvap
-    #                 Plo = 1.e-5 # guess very low pressure
-    #                 phase = 'vapor'
-    #             self.phase = phase
-    #             self.P_solve([Plo, Phi], v=v, h=h, s=s, u=u)
-    #             self.phase = 'unspecified'
-    #         else: # given T is above Tc, so supercritical
-    #             self.P_solve([1.e-5, self.Pc*5], v=v, h=h, s=s, u=u)
-    #     elif self.T is None:
-    #         if self.P < self.Pc:
-    #             x = self.two_phase_check(v=v, h=h, s=s, u=u)
-    #             logger.debug(f'P {self.P} subcrit: x = {x}')
-    #             if 0 < x < 1:
-    #                 self.x = x
-    #                 self.T = self.Tsat
-    #                 return
-    #             elif x < 0:
-    #                 # subcooled liquid
-    #                 Tlo = 1.0  # guess low temperature
-    #                 Thi = self.Tsat
-    #                 phase = 'liquid'
-    #             else:
-    #                 # superheated vapor
-    #                 Thi = self.Tc*3
-    #                 Tlo = self.Tsat
-    #                 phase = 'vapor'
-    #             self.phase = phase
-    #             self.T_solve([Tlo, Thi], v=v, h=h, s=s, u=u)
-    #             self.phase = 'unspecified'
-    #         else:
-    #             self.T_solve([10.0, self.Tc*3], v=v, h=h, s=s, u=u)
-    #     else:
-    #         raise NotImplementedError("Solving when neither T nor P are set is not implemented yet.")
+        pass
 
     def set_compound(self, compound: str | Compound):
         """
@@ -975,5 +624,6 @@ class CubicEOS(ThermodynamicState):
         if compound is not None:
             self.Tc = compound.Tc
             self.Pc = compound.Pc.to('MPa')
+            self.omega = compound.Omega
             self.Cp = deepcopy(compound.Cp)
         return self
