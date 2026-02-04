@@ -30,7 +30,7 @@ The following properties are available when applicable as scalars:
 * Saturation temperature (T\ :sup:`sat`) at state pressure
 * Vapor fraction (x\ :sub:`vap`) for two-phase states
 
-Temperature is in Kelvin (K) and pressure is in megapascals (MPa) by default.  Other units of pressure are supported.  See the :doc:`API` documentation for details.
+Temperature is in Kelvin (K) and pressure is in megapascals (MPa) by default.  All quantities are typed as :class:`pint.Quantity` and therefore have units. See the :doc:`API` documentation for details.
 
 First Calculation
 -----------------
@@ -46,15 +46,15 @@ From the Command Line
 
 Output::
 
-   State report for methane using Peng-Robinson Equation of State:
-   T    =  400.00 K
-   P    =  0.50 MPa
-   Z    =  0.996444
-   v    =  0.00662792 m3/mol
-   h    =  3858.78 J/mol
-   s    = -2.23817 J/mol-K
-   hdep = -54.7512 J/mol
-   sdep = -0.107042 J/mol-K
+   T     =   400 kelvin
+   P     =   0.5 megapascal
+   v     =  0.00662792 meter ** 3 / mole
+   s     = -2.23817 joule / kelvin / mole
+   h     =  3858.78 joule / mole
+   u     =  544.821 joule / mole
+   Pv    =  3313.96 joule / mole
+   Z     =  0.996444
+   Tsat  =  135.11 kelvin at 0.5 megapascal
 
 From Python
 ~~~~~~~~~~~
@@ -107,20 +107,25 @@ Output::
 
    State-change calculations for methane using Peng-Robinson Equation of State:
 
-   State 1:                       State 2:
-   T    =  350.00 K               T    =  400.00 K
-   P    =  7.50 MPa               P    =  15.50 MPa
-   Z    =  0.92619                Z    =  0.950871
-   v    =  0.000359369 m3/mol     v    =  0.000204025 m3/mol
-   h    =  929.35 J/mol           h    =  2501.21 J/mol
-   s    = -32.095 J/mol-K         s    = -33.5449 J/mol-K
-   hdep = -989.935 J/mol          hdep = -1412.32 J/mol
-   sdep = -2.12621 J/mol-K        sdep = -2.86197 J/mol-K
+   State 1:                                 State 2:
+   T  =   350 kelvin                        T  =   400 kelvin
+   P  =   7.5 megapascal                    P  =  15.5 megapascal
+   v  =  0.000359369 meter ** 3 / mole      v  =  0.000204025 meter ** 3 / mole
+   s  = -32.095 joule / kelvin / mole       s  = -33.5449 joule / kelvin / mole
+   h  =  929.35 joule / mole                h  =  2501.21 joule / mole
+   u  = -1765.92 joule / mole               u  = -661.182 joule / mole
+   Pv =  2695.27 joule / mole               Pv =  3162.39 joule / mole
+   Z  =  0.92619                            Z  =  0.950871
 
    Property changes:
-   Δh =  1571.86 J/mol
-   Δs = -1.44983 J/mol-K
-   Δu =  1104.74 J/mol
+   ΔT  =     50 kelvin
+   ΔP  =      8 megapascal
+   Δh  =  1571.86 joule / mole
+   Δs  = -1.44983 joule / kelvin / mole
+   Δu  =  1104.74 joule / mole
+   Δv  = -0.000155344 meter ** 3 / mole
+   ΔPv =  467.124 joule / mole
+   ΔZ  =  0.0246816
 
 From Python
 ~~~~~~~~~~~
@@ -138,14 +143,12 @@ State-change calculations can be performed by creating two EOS objects represent
    pr_methane2 = PengRobinsonEOS(T=400, P=15.5).set_compound('methane')
    
    # Calculate property differences using built-in methods
-   delta_h = pr_methane1.delta_h(pr_methane2)
-   delta_s = pr_methane1.delta_s(pr_methane2)
-   delta_u = pr_methane1.delta_u(pr_methane2)
+   delta = pr_methane1.delta_property(pr_methane2)
    
-   print(f"Δh = {', '.join([f'{dh: 7g}' for dh in delta_h])} J/mol")
-   print(f"Δs = {', '.join([f'{ds: 7g}' for ds in delta_s])} J/mol-K")
-   print(f"Δu = {', '.join([f'{du: 7g}' for du in delta_u])} J/mol")
-
+   print(f"Δh = {', '.join([f'{dh: 7g}' for dh in delta['h']])} J/mol")
+   print(f"Δs = {', '.join([f'{ds: 7g}' for ds in delta['s']])} J/mol-K")
+   print(f"Δu = {', '.join([f'{du: 7g}' for du in delta['u']])} J/mol")
+   
 Available Equations of State
 -----------------------------
 

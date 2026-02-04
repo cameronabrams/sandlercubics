@@ -130,26 +130,22 @@ Examples
 
 Output::
 
-   State report for methane using Peng-Robinson Equation of State:
-   T    =  400.00 K
-   P    =  0.50 MPa
-   Z    =  0.996444
-   v    =  0.00662792 m3/mol
-   h    =  3858.78 J/mol
-   s    = -2.23817 J/mol-K
-   hdep = -54.7512 J/mol
-   sdep = -0.107042 J/mol-K
-
-   Constants used for calculations:
-   Tc    = 190.40 K
-   Pc    = 4.60 MPa
-   omega = 0.011
-   Tref  = 298.15 K
-   Pref  = 0.10 MPa
-   CpA   = 19.25 J/mol-K
-   CpB   = 5.213e-02 J/mol-K^2
-   CpC   = 1.197e-05 J/mol-K^3
-   CpD   = -1.132e-08 J/mol-K^4
+   T     =   400 kelvin
+   P     =   0.5 megapascal
+   v     =  0.00662792 meter ** 3 / mole
+   s     = -2.23817 joule / kelvin / mole
+   h     =  3858.78 joule / mole
+   u     =  544.821 joule / mole
+   Pv    =  3313.96 joule / mole
+   Z     =  0.996444
+   Tsat  =  135.11 kelvin at 0.5 megapascal
+   Tc    =  190.4 kelvin
+   Pc    =    4.6 megapascal
+   omega =  0.011
+   CpA   =  19.25
+   CpB   =  0.05213
+   CpC   =  1.197e-05
+   CpD   = -1.132e-08
 
 **Using van der Waals equation:**
 
@@ -171,30 +167,25 @@ Output::
 
 Output::
 
-   State report for methane using Peng-Robinson Equation of State:
-   T              =  180.00 K
-   P              =  3.00 MPa
-   Z              =  0.625886,  0.124374
-   v              =  0.000312234,  6.20463e-05 m3/mol
-   h              = -5407.84, -9334.59 J/mol
-   s              = -50.6319, -72.8453 J/mol-K
-   hdep           = -1597.87, -5524.61 J/mol
-   sdep           = -6.21915, -28.4326 J/mol-K
-   Pvap(180.00 K) = 3.33 MPa
-   Hvap(180.00 K) = 3686.60 J/mol
-   Svap(180.00 K) = 20.4811 J/mol-K
-   Tsat(3.00 MPa) = 176.88 K
-
-   Constants used for calculations:
-   Tc    = 190.40 K
-   Pc    = 4.60 MPa
-   omega = 0.011
-   Tref  = 298.15 K
-   Pref  = 0.10 MPa
-   CpA   = 19.25 J/mol-K
-   CpB   = 5.213e-02 J/mol-K^2
-   CpC   = 1.197e-05 J/mol-K^3
-   CpD   = -1.132e-08 J/mol-K^4
+   T     =   180 kelvin
+   P     =     3 megapascal
+   v     =  0.000312234 meter ** 3 / mole
+   s     = -50.6319 joule / kelvin / mole
+   h     = -5407.84 joule / mole
+   u     = -6344.55 joule / mole
+   Pv    =  936.703 joule / mole
+   Z     =  0.625886
+   Pvap  =  3.32679 megapascal at 180 kelvin
+   Hvap  =  3686.6 joule / mole at 180 kelvin
+   Svap  =  20.4811 joule / kelvin / mole at 180 kelvin
+   Tsat  =  176.88 kelvin at 3 megapascal
+   Tc    =  190.4 kelvin
+   Pc    =    4.6 megapascal
+   omega =  0.011
+   CpA   =  19.25
+   CpB   =  0.05213
+   CpC   =  1.197e-05
+   CpD   = -1.132e-08
 
 ``delta`` Command
 -----------------
@@ -253,10 +244,15 @@ Examples
 
 Output::
 
-   State-change calculations for methane using Peng-Robinson Equation of State:
-   Δh =  1571.86 J/mol
-   Δs = -1.44983 J/mol-K
-   Δu =  1104.74 J/mol
+State-change calculations for methane using Peng-Robinson Equation of State:
+ΔT  =     50 kelvin
+ΔP  =      8 megapascal
+Δh  =  1571.86 joule / mole
+Δs  = -1.44983 joule / kelvin / mole
+Δu  =  1104.74 joule / mole
+Δv  = -0.000155344 meter ** 3 / mole
+ΔPv =  467.124 joule / mole
+ΔZ  =  0.0246816
 
 **With state details:**
 
@@ -268,25 +264,30 @@ Output::
 
    State-change calculations for methane using Peng-Robinson Equation of State:
 
-   State 1:                       State 2:
-   T    =  350.00 K               T    =  400.00 K
-   P    =  7.50 MPa               P    =  15.50 MPa
-   Z    =  0.92619                Z    =  0.950871
-   v    =  0.000359369 m3/mol     v    =  0.000204025 m3/mol
-   h    =  929.35 J/mol           h    =  2501.21 J/mol
-   s    = -32.095 J/mol-K         s    = -33.5449 J/mol-K
-   hdep = -989.935 J/mol          hdep = -1412.32 J/mol
-   sdep = -2.12621 J/mol-K        sdep = -2.86197 J/mol-K
+   State 1:                                 State 2:
+   T  =   350 kelvin                        T  =   400 kelvin
+   P  =   7.5 megapascal                    P  =  15.5 megapascal
+   v  =  0.000359369 meter ** 3 / mole      v  =  0.000204025 meter ** 3 / mole
+   s  = -32.095 joule / kelvin / mole       s  = -33.5449 joule / kelvin / mole
+   h  =  929.35 joule / mole                h  =  2501.21 joule / mole
+   u  = -1765.92 joule / mole               u  = -661.182 joule / mole
+   Pv =  2695.27 joule / mole               Pv =  3162.39 joule / mole
+   Z  =  0.92619                            Z  =  0.950871
 
    Property changes:
-   Δh =  1571.86 J/mol
-   Δs = -1.44983 J/mol-K
-   Δu =  1104.74 J/mol
+   ΔT  =     50 kelvin
+   ΔP  =      8 megapascal
+   Δh  =  1571.86 joule / mole
+   Δs  = -1.44983 joule / kelvin / mole
+   Δu  =  1104.74 joule / mole
+   Δv  = -0.000155344 meter ** 3 / mole
+   ΔPv =  467.124 joule / mole
+   ΔZ  =  0.0246816
 
 Units Reference
 ---------------
 
-The CLI uses SI units consistently unless otherwise specified. The following table summarizes the units used for input and output:
+The CLI uses SI units consistently unless otherwise specified, implemented by the pint package. The following table summarizes the units used for input and output:
 
 =================== ==================
 Property            Unit
@@ -298,32 +299,4 @@ Enthalpy (H)        J/mol
 Entropy (S)         J/(mol-K)
 Internal energy (U) J/mol
 =================== ==================
-
-
-Tips and Best Practices
------------------------
-
-1. **Compound names**: Use lowercase names as they appear in the sandlerprops database (e.g., ``methane``, ``ethane``, ``water``)
-
-2. **EOS selection**: 
-   
-   * Use ``ideal`` for low-pressure gases where non-ideal behavior is negligible
-   * Use ``pr`` (Peng-Robinson) for most hydrocarbons and petroleum applications
-   * Use ``srk`` (Soave-Redlich-Kwong) for gas processing
-   * Use ``vdw`` (van der Waals) for educational purposes or as a baseline
-
-3. **Phase specifications**: Two-phase conditions can have multiple solutions.  When two values are reported for Z, v, h, or s, the first corresponds to the vapor phase and the second to the liquid phase.
-
-4. **Custom properties**: If a compound isn't in the database, you can manually specify Tc, Pc, omega, and Cp from any reliable source.
-
-Error Messages
---------------
-
-Common CLI errors and their solutions:
-
-**"Compound not found"**
-   The compound name isn't in the sandlerprops database. Either check the spelling or use manual property input (--Tc, --Pc, --omega, --Cp).
-
-**"Convergence error"**
-   The numerical solver couldn't find a solution. This can happen near critical points or at extreme conditions. Try slightly different T/P values.
 

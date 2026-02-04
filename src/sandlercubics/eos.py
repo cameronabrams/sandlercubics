@@ -55,7 +55,7 @@ class CubicEOS(ThermodynamicState):
     Cp: float | list[float] | dict [str, float] | None = None
     """ heat capacity data for ideal-gas contributions """
 
-    _PARAMETER_FIELDS = frozenset({'Tc', 'Pc', 'omega', 'Cp'})
+    _PARAMETER_ORDERED_FIELDS = ['Tc', 'Pc', 'omega', 'Cp']
 
     Z: float = None
     """ compressibility factor """
@@ -85,7 +85,7 @@ class CubicEOS(ThermodynamicState):
         Create a helper CubicEOS instance for internal calculations
         """
         # logger.debug(f'_spawn_helper: Creating helper state for {self.name}')
-        logger.debug(f'_spawn_helper: Creating helper state for {self.name} with T={self.T}, P={self.P}, Tc={self.Tc}, Pc={self.Pc}, omega={self.omega}, Cp={self.Cp}')
+        # logger.debug(f'_spawn_helper: Creating helper state for {self.name} with T={self.T:.3f}, P={self.P:.3f}, Tc={self.Tc:.3f}, Pc={self.Pc:.3f}, omega={self.omega:.3f}, Cp={self.Cp}')
         helper_state = self.__class__.simple(
             name=f'{self.name}_helper' if self.name else 'CubicEOS_helper',
             T=self.T,
@@ -98,7 +98,7 @@ class CubicEOS(ThermodynamicState):
             maxiter=self.maxiter,
             epsilon=self.epsilon
         )
-        logger.debug(f'_spawn_helper: Created helper state {helper_state.name} with T={helper_state.T}, P={helper_state.P}, Tc={helper_state.Tc}, Pc={helper_state.Pc}, omega={helper_state.omega}, Cp={helper_state.Cp}')
+        # logger.debug(f'_spawn_helper: Created helper state {helper_state.name} with T={helper_state.T:.3f}, P={helper_state.P:.3f}, Tc={helper_state.Tc:.3f}, Pc={helper_state.Pc:.3f}, omega={helper_state.omega:.3f}, Cp={helper_state.Cp}')
         return helper_state
 
     def get_default_unit(self, field_name: str) -> pint.Unit:
@@ -148,24 +148,29 @@ class CubicEOS(ThermodynamicState):
         """
         Resolve state given T and P.
         """
-        logger.debug(f'_resolve_TP: CubicEOS {self.name}: Resolving state for T={self.T}, P={self.P}')
+        logger.debug(f'{self.__class__.__name__}._resolve_TP: Resolving state for T={self.T:.3f}, P={self.P:.3f}')
         Zlist = self._solve_for_Z()
-        logger.debug(f' -> Z roots found: {Zlist}')
+        # logger.debug(f' -> Z roots found: {Zlist}')
         if len(Zlist) > 1:
             if self.T < self.Tc:
+                logger.debug(f'****** Pvap calculation in _resolve_TP triggered T={self.T:.3f} < Tc={self.Tc:.3f} ******')
                 Pvap = self.Pvap
+                logger.debug(f'****** Pvap calculation in _resolve_TP completed {Pvap:.3f} ******')
                 if self.P < Pvap:
                     setattr(self, 'Z', Zlist[0])  # vapor root
                 elif self.P >= Pvap:
                     setattr(self, 'Z', Zlist[1])   # liquid root
-            else:  # P < Pc
+            elif self.P < self.Pc:
+                logger.debug(f'****** Tsat calculation in _resolve_TP triggered P={self.P:.3f} < Pc={self.Pc:.3f} ******')
                 Tsat = self.Tsat
+                logger.debug(f'****** Tsat calculation in _resolve_TP completed {Tsat:.3f} ******')
                 if self.T < Tsat:
                     setattr(self, 'Z', Zlist[1])   # liquid root
                 elif self.T >= Tsat:
                     setattr(self, 'Z', Zlist[0])  # vapor root
         else:
             setattr(self, 'Z', Zlist[0])
+        logger.debug(f'{self.__class__.__name__}._resolve_TP: T={self.T:.3f}, P={self.P:.3f} -> Z={self.Z:.6f}')
         return self._calculate_vhus()
 
 
@@ -271,7 +276,7 @@ class CubicEOS(ThermodynamicState):
             self.Z = self.P * self.v / (R * self.T)
             self._calculate_hus()
             return True
-        bounds = (0.01 * self.Pc.m_as(punit), self.Pc.m_as(punit)*10.0)
+        bounds = (0.01 * self.Pc.m_as(punit), self.Pc.m_as(punit)*5.0)
         op_value_target = getattr(self, op)
         self.swap_input_vars(op, 'P')
         def residual(P_guess):
@@ -279,17 +284,35 @@ class CubicEOS(ThermodynamicState):
             self._resolve_TP()
             op_value_current = getattr(self, op)
             return op_value_current.m - op_value_target.m
-        P_solution = brentq(residual, bounds[0], bounds[1], xtol=1e-6)
-        self.P = P_solution
-        self._resolve_TP()
+        r1 = residual(bounds[0])
+        r2 = residual(bounds[1])
+        logger.debug(f'{self.__class__.__name__}._resolve_Top: residual at bound1 {bounds[0]:.3f}: {r1:.3f}, residual at bound2 {bounds[1]:.3f}: {r2:.3f}')
+        niter = 0
+        bail = False
+        while r1 * r2 > 0:
+            bounds = (bounds[0] + 0.1, bounds[1])
+            r1 = residual(bounds[0])
+            r2 = residual(bounds[1])
+            logger.debug(f'{self.__class__.__name__}._resolve_Top: iter {niter}, residual at bound1 {bounds[0]:.3f}: {r1:.3f}, residual at bound2 {bounds[1]:.3f}: {r2:.3f}')
+            niter += 1
+            if niter > 20:
+                logger.debug(f'State {self.name}: Unable to bracket root for {op}={op_value_target:.3f} after {niter} iterations.')
+                bail = True
+                break
+        if not bail:
+            P_solution = brentq(residual, bounds[0], bounds[1], xtol=1e-6)
+            self.P = P_solution
+            self._resolve_TP()
         self.swap_input_vars('P', op)
+        if bail:
+            return False
         return True
 
     def _resolve_Pop(self) -> bool:
         tunit = self.get_default_unit('T')
         specs = self.get_input_varnames()
         op = specs[0] if specs[1] == 'P' else specs[1]
-        bounds = (0.25 * self.Tc.m_as(tunit), self.Tc.m_as(tunit)*5.0)
+        bounds = (0.1 * self.Tc.m_as(tunit), self.Tc.m_as(tunit)*3.0)
         op_value_target = getattr(self, op)
         self.swap_input_vars(op, 'T')
         def residual(T_guess):
@@ -314,7 +337,7 @@ class CubicEOS(ThermodynamicState):
             self.T = T_guess
             self._resolve_saturated_Tx()
             op_value_current = getattr(self, op)
-            logger.debug(f'_resolve_saturated_opx: T_guess={T_guess}, op={op}, op_value_current={op_value_current}, op_value_target={op_value}')
+            logger.debug(f'_resolve_saturated_opx: T_guess={T_guess:.3f}, op={op}, op_value_current={op_value_current:.3f}, op_value_target={op_value:.3f}')
             return op_value_current.m - op_value.m
         if op == 's':
             r1 = residual(bounds[0])
@@ -326,7 +349,7 @@ class CubicEOS(ThermodynamicState):
                 r2 = residual(bounds[1])
                 niter += 1
                 if niter > 20:
-                    raise ValueError(f'State {self.name}: Unable to bracket root for saturated {op}={op_value} after {niter} iterations.')
+                    raise ValueError(f'State {self.name}: Unable to bracket root for saturated {op}={op_value:.3f} after {niter} iterations.')
             logger.debug(f'_resolve_saturated_opx: Needed {niter} expansions of bounds to find sign change.')
         T_solution = brentq(residual, bounds[0], bounds[1], xtol=1e-6)
         self.T = T_solution
@@ -335,21 +358,43 @@ class CubicEOS(ThermodynamicState):
         return True
 
     def _resolve_op_op(self) -> bool:
+        raise NotImplementedError('_resolve_op_op not implemented yet')
         specs = self.get_input_varnames()
         op1, op2 = specs[0], specs[1]
         op1_value = getattr(self, op1)
         op2_value = getattr(self, op2)
+        logger.debug(f'{self.__class__.__name__}._resolve_op_op: {op1} = {op1_value:.3f}, {op2} = {op2_value:.3f}')
+
         self.swap_input_vars(op1, 'T')
-        bounds = (0.25 * self.Tc.m_as(self.get_default_unit('T')), self.Tc.m_as(self.get_default_unit('T'))*5.0)
+        bounds = (0.25 * self.Tc.m_as(self.get_default_unit('T')), self.Tc.m_as(self.get_default_unit('T'))*2.0)
         def residual(T_guess):
             self.T = T_guess
-            self._resolve_Top()
+            niter = 0
+            while not self._resolve_Top():
+                logger.debug(f'{self.__class__.__name__}._resolve_op_op: _resolve_Top failed at T={self.T:.3f}, trying next T guess.')
+                T_guess += 5.0
+                self.T = T_guess
+                niter += 1
+                if niter > 50:
+                    raise ValueError(f'State {self.name}: Unable to resolve state for {op1}={op1_value:.3f} after {niter} attempts adjusting T.')
             op2_value_current = getattr(self, op2)
             return op2_value_current.m - op2_value.m
+        r1 = residual(bounds[0])
+        r2 = residual(bounds[1])
+        niter = 0
+        while r1 * r2 > 0:
+            bounds = (bounds[0] + 10.0, bounds[1])
+            r1 = residual(bounds[0])
+            r2 = residual(bounds[1])
+            niter += 1
+            if niter > 20:
+                raise ValueError(f'State {self.name}: Unable to bracket root for saturated {op}={op_value:.3f} after {niter} iterations.')
+        logger.debug(f'_resolve_saturated_opx: Needed {niter} expansions of bounds to find sign change.')
         T_solution = brentq(residual, bounds[0], bounds[1], xtol=1e-6)
         self.T = T_solution
         self._resolve_Top()
         self.swap_input_vars('T', op1)
+        logger.debug(f'{self.__class__.__name__}._resolve_op_op: Resolved T = {self.T:.3f}, P = {self.P:.3f}')
         return True
 
     @abstractmethod
@@ -431,7 +476,13 @@ class CubicEOS(ThermodynamicState):
             elif self.phase == 'liquid':
                 Z = np.array([np.min(real_roots)])
             else: # unspecified/multiple
-                Z = np.array([real_roots[0], real_roots[2]]) # sorted by numpy.roots
+                # logger.debug(f'{self.__class__.__name__}._solve_for_Z: Multiple roots found: {real_roots}, sorting and returning vapor and liquid roots if present')
+                positive_roots = real_roots[real_roots > 0]
+                if len(positive_roots) < 2:
+                    Z = positive_roots
+                else:
+                    # sorted_roots = np.sort(positive_roots)
+                    Z = np.array([real_roots[0], real_roots[-1]])
         return Z
 
     @abstractmethod
@@ -496,24 +547,41 @@ class CubicEOS(ThermodynamicState):
 
     def z_helpers(self, hV: CubicEOS, hL: CubicEOS):
         Zlist = hV._solve_for_Z()
-        logger.debug(f'z_helpers: Z roots found: {Zlist}')
+        # logger.debug(f'z_helpers: Z roots found: {Zlist}')
         ZV, ZL = Zlist[0], Zlist[1]
         hV.Z = ZV
         hL.Z = ZL
-        logger.debug(f'z_helpers: ZV {ZV:.6f}, ZL {ZL:.6f}')
+        # logger.debug(f'z_helpers: ZV {ZV:.6f}, ZL {ZL:.6f}')
+        # fV = hV.f
+        # logger.debug(f'z_helpers: fV {fV:.6f}')
+        # fL = hL.f
+        # logger.debug(f'z_helpers: fL {fL:.6f}')
 
     def _calc_Pvap(self) -> float:
+        if self.T >= self.Tc:
+            raise ValueError(f'State {self.name}: Cannot calculate Pvap at T={self.T} above critical temperature Tc={self.Tc}.')
         hV = self._spawn_helper()
         hL = self._spawn_helper()
         hV.P = (vapor_pressure_ambrose_walton(self.T.m_as('K'), self.Tc.m_as('K'), self.Pc.m_as('Pa'), self.omega) * ureg.pascal).to(self.get_default_unit('P'))
-        logger.debug(f'Initial Pvap guess: {hV.P:.6f} at T {hV.T:.6f} (Pc {hV.Pc:.6f}, Tc {hV.Tc:.6f})')
+        logger.debug(f'{self.__class__.__name__}._calc_Pvap: Initial Pvap guess: {hV.P:.3f} at T {hV.T:.3f} (Pc {hV.Pc:.3f}, Tc {hV.Tc:.3f})')
         hV.T = self.T
-        while len(hV._solve_for_Z()) < 2:
-            logger.debug(f'Pvap initial guess too low; increasing P guess from {hV.P:.6f} to {hV.P*1.05:.6f}')
-            hV.P *= 1.05
+        Zlist = hV._solve_for_Z()
+        niter = 0
+        while len(Zlist) < 2:
+            z = Zlist[0]
+            if z > 0.27:
+                logger.debug(f'{self.__class__.__name__}._calc_Pvap: Pvap at {self.T:.3f} (Tc={self.Tc:.3f}) initial guess too low; z = {z} increasing P guess from {hV.P:.3f} to {hV.P*1.05:.3f}')
+                hV.P *= 1.05
+            else:
+                logger.debug(f'{self.__class__.__name__}._calc_Pvap: {self.__class__.__name__}._calc_Pvap: Pvap at {self.T:.3f} (Tc={self.Tc:.3f}) initial guess too high; z = {z} decreasing P guess from {hV.P:.3f} to {hV.P*0.95:.3f}')
+                hV.P *= 0.95
+            Zlist = hV._solve_for_Z()
+            niter += 1
+            if niter > 50:
+                raise ValueError(f'State {self.name}: Unable to find initial Pvap guess after {niter} adjustments.')
         hL.P = hV.P
         hL.T = hV.T
-        logger.debug(f'Initial Pvap guess: {hV.P:.6f} at T {hV.T:.6f} (Pc {hV.Pc:.6f}, Tc {hV.Tc:.6f})')
+        logger.debug(f'{self.__class__.__name__}._calc_Pvap: Initial Pvap guess: {hV.P:.3f} at T {hV.T:.3f} (Pc {hV.Pc:.3f}, Tc {hV.Tc:.3f})')
         keepgoing = True
         i = 0
         while keepgoing:
@@ -524,13 +592,13 @@ class CubicEOS(ThermodynamicState):
             except:
                 return np.nan
             err = np.abs(fL / fV - 1)
-            if hV.logiter: logger.debug(f'Pvap: Iter {i}: P {hV.P:.6f}, fV {fV:.6f}, fL {fL:.6f}; error {err:.4e}')
+            if hV.logiter: logger.debug(f'Pvap: Iter {i}: P {hV.P:.3f}, fV {fV:.3f}, fL {fL:.3f}; error {err:.4e}')
             hV.P *= fL / fV
             hL.P = hV.P
             if err < hV.epsilon or i == hV.maxiter:
                 keepgoing = False
             if i >= hV.maxiter:
-                logger.warning(f'Reached {i} iterations without convergence; error {err:.4e}')
+                logger.warning(f'{self.__class__.__name__}._calc_Pvap: Reached {i} iterations without convergence; error {err:.4e}')
         return hV.P
     
     def _calc_Hvap(self) -> float:
@@ -562,16 +630,29 @@ class CubicEOS(ThermodynamicState):
         pass
 
     def _calc_Tsat(self) -> float:
+        if self.P >= self.Pc:
+            raise ValueError(f'State {self.name}: Cannot calculate Tsat at P={self.P} above critical pressure Pc={self.Pc}.')
         hV = self._spawn_helper()
         hL = self._spawn_helper()
         hV.P = self.P
         hV.T = hV.Tc * (hV.P / hV.Pc)**0.125
-        while len(hV._solve_for_Z()) < 2:
-            logger.debug(f'Tsat initial guess too high; decreasing T guess from {hV.T:.6f} to {hV.T*0.95:.6f}')
-            hV.T *= 0.95
+        Zlist = hV._solve_for_Z()
+        niter = 0
+        while len(Zlist) < 2:
+            z = Zlist[0]
+            if z > 0.27:
+                logger.debug(f'{self.__class__.__name__}._calc_Tsat: Tsat at {self.P:.3f} (Pc={self.Pc:.3f}) initial guess too low; z = {z} increasing T guess from {hV.T:.3f} to {hV.T*1.05:.3f}')
+                hV.T *= 1.05
+            else:
+                logger.debug(f'{self.__class__.__name__}._calc_Tsat: Tsat at {self.P:.3f} (Pc={self.Pc:.3f}) initial guess too high; z = {z} decreasing T guess from {hV.T:.3f} to {hV.T*0.95:.3f}')
+                hV.T *= 0.95
+            Zlist = hV._solve_for_Z()
+            niter += 1
+            if niter > 50:
+                raise ValueError(f'{self.__class__.__name__}._calc_Tsat: Unable to find initial Tsat guess after {niter} adjustments.')
         hL.P = hV.P
         hL.T = hV.T
-        logger.debug(f'Initial Tsat guess: {hL.T:.6f} at {hL.P:.6f} (Pc {hL.Pc:.6f}, Tc {hL.Tc:.6f})')
+        logger.debug(f'{self.__class__.__name__}._calc_Tsat: Initial Tsat guess: {hL.T:.3f} at {hL.P:.3f} (Pc {hL.Pc:.3f}, Tc {hL.Tc:.3f})')
         keepgoing = True
         i = 0
         while keepgoing:
@@ -583,13 +664,13 @@ class CubicEOS(ThermodynamicState):
                 # raise ValueError(f'Error in fugacity calculation in Tsat at T {hL.T:.2f}, P {hL.P:.2f} {pu}')
                 return np.nan
             err = np.abs(fV / fL - 1)
-            if hL.logiter: logger.debug(f'Tsat: Iter {i}: T {hL.T:.6f}, fV {fV:.6f}, fL {fL:.6f}; error {err:.4e}')
+            if hL.logiter: logger.debug(f'{self.__class__.__name__}._calc_Tsat: Iter {i}: T {hL.T:.6f}, fV {fV:.6f}, fL {fL:.6f}; error {err:.4e}')
             hV.T *= (fV / fL)**0.125
             hL.T = hV.T
             if err < hL.epsilon or i == hL.maxiter:
                 keepgoing = False
             if i == hL.maxiter:
-                logger.warning(f'Reached {i} iterations without convergence; error {err:.4e}')
+                logger.warning(f'{self.__class__.__name__}._calc_Tsat: Reached {i} iterations without convergence; error {err:.4e}')
         return hV.T
 
     @cached_property

@@ -14,6 +14,7 @@ class SoaveRedlichKwongEOS(CubicEOS):
     Pure-component Soave-Redlich-Kwong equation of state (Eq. 6.4-1 in Sandler 5th ed)
     """
 
+    name: str = "Soave-Redlich-Kwong Equation of State"
     description: str = "Soave-Redlich-Kwong Equation of State"
 
     @property
@@ -36,11 +37,20 @@ class SoaveRedlichKwongEOS(CubicEOS):
         """
         return 0.42748 * R**2 * self.Tc**2 / self.Pc * self.alpha
     
+    def _calc_da_dT(self) -> float:
+        """
+        Temperature derivative of parameter a for Soave-Redlich-Kwong EOS
+        """
+        Tr = self.T / self.Tc
+        term1 = -0.42748 * R**2 * self.Tc**2 / self.Pc
+        term2 = self.kappa / (self.Tc * np.sqrt(Tr)) * (1 + self.kappa * (1 - np.sqrt(Tr)))
+        return term1 * term2
+
     def _calc_b(self):
         """
         Calculates parameter b for Soave-Redlich-Kwong EOS
         """
-        return 0.08664 * self.R * self.Tc / self.Pc
+        return 0.08664 * R * self.Tc / self.Pc
 
     def _calc_P(self):
         """

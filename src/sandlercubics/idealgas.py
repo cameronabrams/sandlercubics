@@ -12,7 +12,7 @@ class IdealGasEOS(CubicEOS):
     """
     Ideal gas class derived from CubicEOS
     """
-
+    name: str = "Ideal Gas Equation of State"
     description: str = "Ideal Gas Equation of State"
 
     _PARAMETER_FIELDS = frozenset({'Cp'})

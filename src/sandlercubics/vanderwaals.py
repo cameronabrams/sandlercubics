@@ -13,20 +13,24 @@ class VanDerWaalsEOS(CubicEOS):
     Generalized van der Waals equation of state, in which 'a' and 'b'
     are calculated from critical constants
     """
-
+    
+    name: str = "Van der Waals Equation of State"
     description: str = "Van der Waals Equation of State"
 
     def _calc_a(self):
         """
         Calculates parameter a for Van der Waals EOS
         """
-        return (27 / 64) * self.R**2 * self.Tc**2 / self.Pc
+        return (27 / 64) * R**2 * self.Tc**2 / self.Pc
     
+    def _calc_da_dT(self) -> float:
+        return 0.0
+
     def _calc_b(self):
         """
         Calculates parameter b for Van der Waals EOS
         """
-        return self.R * self.Tc / (8 * self.Pc)
+        return R * self.Tc / (8 * self.Pc)
 
     def _calc_P(self):
         """

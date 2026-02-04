@@ -16,6 +16,8 @@ from .soaveredlichkwong import SoaveRedlichKwongEOS
 from .pengrobinson import PengRobinsonEOS
 from .vanderwaals import VanDerWaalsEOS
 
+from sandlermisc import ureg, StateReporter
+
 banner = r"""
  __                 _ _           
 / _\ __ _ _ __   __| | | ___ _ __ 
@@ -30,148 +32,7 @@ _\ \ (_| | | | | (_| | |  __/ |
 
 """
 
-
 def state_subcommand(args):
-    state_kwargs = {}
-    for p in State._STATE_VAR_FIELDS.union({'x'}):
-        val = getattr(args, p)
-        if val is not None:
-            state_kwargs[p] = val
-    state = State(**state_kwargs)
-    additional_fields = ['Z', 'h_departure', 's_departure']
-    if args.show_parameters:
-        report = state.report(additional_fields=additional_fields, 
-                              parameters=['Tc', 'Pc', 'omega', 'Cp'])
-    report = state.report()
-    print(report)
-
-def delta_subcommand(args):
-    state1_kwargs = {}
-    state2_kwargs = {}
-    for p in State._STATE_VAR_FIELDS.union({'x'}):
-        val1 = getattr(args, f'{p}1')
-        val2 = getattr(args, f'{p}2')
-        if val1 is not None:
-            state1_kwargs[p] = val1
-        if val2 is not None:
-            state2_kwargs[p] = val2
-    state1 = State(**state1_kwargs)
-    state2 = State(**state2_kwargs)
-    delta_props = state1.delta(state2)
-    delta_State = StateReporter({})
-    # print('Property differences (state2 - state1):')
-    for prop in State._STATE_VAR_ORDERED_FIELDS + ['Pv']:
-        if prop in delta_props:
-            value = delta_props[prop]
-            delta_State.add_property(f'Δ{prop}', state1.get_formatter(prop).format(value.m), state1.get_default_unit(prop), fstring=None)
-    state1_report = state1.report()
-    state2_report = state2.report()
-    print(f"State-change calculations:")
-    if args.show_states:
-        print()
-        two_states = ["State 1:                       State 2:"]
-        nlines1 = len(state1_report.splitlines())
-        nlines2 = len(state2_report.splitlines())
-        nlines = max(nlines1, nlines2)
-        if nlines1 < nlines:
-            state1_report += '\n' * (nlines - nlines1 + 1)
-        if nlines2 < nlines:
-            state2_report += '\n' * (nlines - nlines2 + 1)
-        for line1, line2 in zip(state1_report.splitlines(), state2_report.splitlines()):
-            two_states.append(f"{line1:<26s}     {line2}")
-        print("\n".join(two_states))
-        print()
-        print("Property changes:")
-    print(delta_State.report())
-
-
-
-#### old below
-
-def bar_to_unit(value_in_bar: float, to_unit: str) -> float:
-    """
-    Convert pressure from bar to specified unit.
-    
-    Parameters
-    ----------
-    value_in_bar : float
-        Pressure value in bar.
-    to_unit : str
-        Target unit ('mpa', 'MPa', 'kpa', 'kPa', 'pa', 'Pa', 'bar', 'atm').
-
-    Returns
-    -------
-    float
-        Converted pressure value.
-    """
-    conversions = {
-        'mpa': 0.1,
-        'MPa': 0.1,
-        'kpa': 100.0,
-        'kPa': 100.0,
-        'pa': 1e5,
-        'Pa': 1e5,
-        'bar': 1.0,
-        'atm': 0.986923,
-    }
-    if to_unit not in conversions:
-        raise ValueError(f"Unsupported pressure unit conversion to {to_unit}.")
-    return value_in_bar * conversions[to_unit]
-
-def reporters(eos: CubicEOS) -> str:
-    """
-    Generate state and property reports for the given EOS.
-    
-    Parameters
-    ----------
-    eos : CubicEOS
-        The equation of state object.
-
-    Returns
-    -------
-    str
-        Formatted state and property reports.
-    """
-
-    result = StateReporter({})
-    
-    result.add_property('T', eos.T, 'K', fstring="{: .2f}")
-    pu = eos.R._capitalizations.get(eos.pressure_unit, eos.pressure_unit)
-    result.add_property('P', eos.P, pu, fstring="{: .2f}")
-    result.add_property('Z', ', '.join([f"{z: 4g}" for z in eos.Z]), '', fstring=None)
-    vu = eos.R._capitalizations.get(eos.volume_unit, eos.volume_unit)
-    result.add_property('v', ', '.join([f"{vol: 6g}" for vol in eos.v]), f'{vu}/mol', fstring=None)
-    result.add_property('h', ', '.join([f"{h: 6g}" for h in eos.h]), 'J/mol', fstring=None)
-    result.add_property('s', ', '.join([f"{s: 6g}" for s in eos.s]), 'J/mol-K', fstring=None)
-    result.add_property('hdep', ', '.join([f"{hdep: 6g}" for hdep in eos.h_departure]), 'J/mol', fstring=None)
-    result.add_property('sdep', ', '.join([f"{sdep: 6g}" for sdep in eos.s_departure]), 'J/mol-K', fstring=None)
-    if eos.T < eos.Tc:
-        pu = eos.R._capitalizations.get(eos.pressure_unit, eos.pressure_unit)
-        if eos.Pvap is not np.nan:
-            result.add_property(f'Pvap({eos.T:.2f} K)', eos.Pvap, pu, fstring="{:.2f}")
-        if eos.Hvap is not np.nan:
-            result.add_property(f'Hvap({eos.T:.2f} K)', eos.Hvap, 'J/mol', fstring="{:.2f}")
-        if eos.Svap is not np.nan:
-            result.add_property(f'Svap({eos.T:.2f} K)', eos.Svap, 'J/mol-K', fstring="{:.4f}")
-        if eos.P < eos.Pc:
-            pu = eos.R._capitalizations.get(eos.pressure_unit, eos.pressure_unit)
-            if eos.Tsat is not np.nan:
-                result.add_property(f'Tsat({eos.P:.2f} {pu})', eos.Tsat, 'K', fstring="{:.2f}")
-        if eos.x is not None:
-            result.add_property('Vapor fraction x', eos.x, '', fstring="{:4g}")
-    prop = StateReporter({})
-    prop.add_property('Tc', eos.Tc, 'K', fstring="{:.2f}")
-    pu = eos.R._capitalizations.get(eos.pressure_unit, eos.pressure_unit)
-    prop.add_property('Pc', eos.Pc, pu, fstring="{:.2f}")
-    prop.add_property('omega', eos.omega, '', fstring="{:.3f}")
-
-    prop.add_property('Tref', eos.Tref, 'K', fstring="{:.2f}")
-    prop.add_property('Pref', eos.Pref_MPa, 'MPa', fstring="{:.2f}")
-    # print(eos.Cp)
-    prop.pack_Cp(eos.Cp, fmts=["{:.2f}", "{:.3e}", "{:.3e}", "{:.3e}"])
-    return result.report(),  prop.report()
-
-def state(args):
     """
     Calculate and report the state for a single condition using the specified EOS.
 
@@ -180,25 +41,17 @@ def state(args):
     args : argparse.Namespace
         Parsed command-line arguments.
     """
-    pressure_unit = args.pressure_unit
-    volume_unit = args.volume_unit
-    if args.n is not None:
-        db = PropertiesDatabase()
-        component = db.get_compound(args.n)
-        if component is None:
-            print(f"Component '{args.n}' not found in database.")
-            return
     match args.eos_type:
         case 'ideal':
-            eos = IdealGasEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
+            eos = IdealGasEOS()
         case 'vdw':
-            eos = VanDerWaalsEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
+            eos = VanDerWaalsEOS()
         case 'pr':
-            eos = PengRobinsonEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
+            eos = PengRobinsonEOS()
         case 'srk':
-            eos = SoaveRedlichKwongEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
-    if component is not None:
-        eos.set_compound(component)
+            eos = SoaveRedlichKwongEOS()
+    if args.n is not None:
+        eos.set_compound(args.n)
     if args.Tc is not None:
         eos.Tc = args.Tc
     if args.Pc is not None:
@@ -207,18 +60,24 @@ def state(args):
         eos.omega = args.w
     if args.Cp is not None:
         eos.Cp = args.Cp
-    if args.eos_type == 'ideal':
-        eos.solve(T=args.T, P=args.P, v=args.v)
-    else:
-        eos.solve(T=args.T, P=args.P, v=args.v, h=args.h, s=args.s, u=args.u)
-    state_report, prop_report = reporters(eos)
-    print(f'State report for {component.Name} using {eos.description}:')
-    print(state_report)
-    if prop_report and args.show_props:
-        print("\nConstants used for calculations:")
-        print(prop_report)
+    for p in 'TPhsuv':
+        v = getattr(args, p, None)
+        if v is not None:
+            setattr(eos, p, v)
+    additional_vars = ['Z']
+    if eos.T < eos.Tc:
+        additional_vars.extend(['Pvap', 'Hvap', 'Svap'])
+    if eos.P < eos.Pc:
+        additional_vars.extend(['Tsat'])
+    property_notes = {
+        'Pvap': f'at {eos.T.to(ureg.kelvin):g}',
+        'Hvap': f'at {eos.T.to(ureg.kelvin):g}',
+        'Svap': f'at {eos.T.to(ureg.kelvin):g}',
+        'Tsat': f'at {eos.P.to(ureg.megapascal):g}',
+    }
+    print(eos.report(additional_vars=additional_vars, show_parameters=args.show_props, property_notes=property_notes))
 
-def delta(args):
+def delta_subcommand(args):
     """
     Calculate and report property differences between two states using the specified EOS.
 
@@ -227,30 +86,22 @@ def delta(args):
     args : argparse.Namespace
         Parsed command-line arguments.
     """
-    pressure_unit = args.pressure_unit
-    volume_unit = args.volume_unit
-    if args.n is not None:
-        db = PropertiesDatabase()
-        component = db.get_compound(args.n) # critical pressures are in bars!
-        if component is None:
-            print(f"Component '{args.n}' not found in database.")
-            return
     match args.eos_type:
         case 'ideal':
-            eos1 = IdealGasEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
-            eos2 = IdealGasEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
+            eos1 = IdealGasEOS()
+            eos2 = IdealGasEOS()
         case 'vdw':
-            eos1 = VanDerWaalsEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
-            eos2 = VanDerWaalsEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
+            eos1 = VanDerWaalsEOS()
+            eos2 = VanDerWaalsEOS()
         case 'pr':
-            eos1 = PengRobinsonEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
-            eos2 = PengRobinsonEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
+            eos1 = PengRobinsonEOS()
+            eos2 = PengRobinsonEOS()
         case 'srk':
-            eos1 = SoaveRedlichKwongEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
-            eos2 = SoaveRedlichKwongEOS(pressure_unit=pressure_unit, volume_unit=volume_unit)
-    if component is not None:
-        eos1.set_compound(component)
-        eos2.set_compound(component)
+            eos1 = SoaveRedlichKwongEOS()
+            eos2 = SoaveRedlichKwongEOS()
+    if args.n is not None:
+        eos1.set_compound(args.n)
+        eos2.set_compound(args.n)
     if args.Tc is not None:
         eos1.Tc = args.Tc
         eos2.Tc = args.Tc
@@ -263,35 +114,31 @@ def delta(args):
     if args.Cp is not None:
         eos1.Cp = args.Cp
         eos2.Cp = args.Cp
-    if args.eos_type == 'ideal':
-        eos1.solve(T=args.T1, P=args.P1, v=args.v1)
-        eos2.solve(T=args.T2, P=args.P2, v=args.v2)
-    else:
-        eos1.solve(T=args.T1, P=args.P1, v=args.v1, h=args.h1, s=args.s1, u=args.u1)
-        eos2.solve(T=args.T2, P=args.P2, v=args.v2, h=args.h2, s=args.s2, u=args.u2)
 
-    delta_State = StateReporter({})
-    delta_H = eos2.h - eos1.h
-    delta_S = eos2.s - eos1.s
-    delta_U = eos2.u - eos1.u
-    delta_State.add_property('Δh', ', '.join(f'{x: 7g}' for x in delta_H), 'J/mol', fstring=None)
-    delta_State.add_property('Δs', ', '.join(f'{x: 7g}' for x in delta_S), 'J/mol-K', fstring=None)
-    delta_State.add_property('Δu', ', '.join(f'{x: 7g}' for x in delta_U), 'J/mol', fstring=None)
-    state_1, _ = reporters(eos1)
-    state_2, consts = reporters(eos2)
-    print(f"State-change calculations for {component.Name} using {eos1.description}:")
+    for p in 'TPhsuv':
+        v = getattr(args, f'{p}1', None)
+        if v is not None:
+            setattr(eos1, p, v)
+        v = getattr(args, f'{p}2', None)
+        if v is not None:
+            setattr(eos2, p, v)
+    state_1 = eos1.report(additional_vars=['Z'], show_parameters=args.show_props)
+    state_2 = eos2.report(additional_vars=['Z'], show_parameters=args.show_props)
+    delta = eos1.delta(eos2, additional_vars=['Pv', 'Z'])
+    print(f"State-change calculations for {args.n} using {eos1.description}:")
     if args.show_states:
         print()
-        two_states = ["State 1:                       State 2:"]
+        two_states = ["State 1:                                 State 2:"]
         for line1, line2 in zip(state_1.splitlines(), state_2.splitlines()):
-            two_states.append(f"{line1:<26s}     {line2}")
+            two_states.append(f"{line1:<36s}     {line2}")
         print("\n".join(two_states))
         print()
         print("Property changes:")
-    print(delta_State.report())
-    if args.show_props:
-        print("\nConstants used for calculations:")
-        print(consts)
+    for p in ['T', 'P', 'h', 's', 'u', 'v', 'Pv', 'Z']:
+        if p in delta:
+            val = delta[p]
+            eq = ' =' if p == 'Pv' else '  ='
+            print(f'Δ{p}{eq} {val: 6g}')
     
 def cli():
     """
@@ -300,11 +147,11 @@ def cli():
 
     subcommands = {
         'state': dict(
-            func = state,
+            func = state_subcommand,
             help = 'work with a cubic equation of state for a single state'
         ),
         'delta': dict(
-            func = delta,
+            func = delta_subcommand,
             help = 'work with property differences between two states (not implemented yet)'
         ),
     }
@@ -350,8 +197,6 @@ def cli():
 
     options = [
         ('eos', 'eos_type', 'type of cubic equation of state to use', str, 'vdw', ['ideal', 'vdw', 'pr', 'srk']),
-        ('pu', 'pressure_unit', 'pressure unit (mpa, bar, atm)', str, 'mpa', ['mpa', 'bar', 'atm']),
-        ('vu', 'volume_unit', 'volume unit (m3, l, cm3)', str, 'm3', ['m3', 'l', 'cm3']),
     ]
     for short, long, desc, typ, default, choices in options:
         command_parsers['state'].add_argument(
@@ -388,9 +233,9 @@ def cli():
     ]
 
     state_args = [
-        ('P', 'pressure', 'pressure', float, False),
+        ('P', 'pressure', 'pressure in MPa', float, False),
         ('T', 'temperature', 'temperature in K (always in K)', float, False),
-        ('v', 'molar_volume', 'molar volume', float, False),
+        ('v', 'molar_volume', 'molar volume in m3/mol', float, False),
         ('h', 'enthalpy', 'molar enthalpy in J/mol', float, False),
         ('s', 'entropy', 'molar entropy in J/mol-K', float, False),
         ('u', 'internal_energy', 'molar internal energy in J/mol', float, False),
@@ -421,15 +266,15 @@ def cli():
     )
 
     delta_args = [
-        ('P1', 'pressure1', 'pressure of state 1', float, False),
+        ('P1', 'pressure1', 'pressure of state 1 in MPa', float, False),
         ('T1', 'temperature1', 'temperature of state 1 in K (always in K)', float, False),
-        ('v1', 'molar_volume1', 'molar volume of state 1', float, False),
+        ('v1', 'molar_volume1', 'molar volume of state 1 in m3/mol', float, False),
         ('h1', 'enthalpy1', 'molar enthalpy of state 1 in J/mol', float, False),
         ('s1', 'entropy1', 'molar entropy of state 1 in J/mol-K', float, False),
         ('u1', 'internal_energy1', 'molar internal energy of state 1 in J/mol', float, False),
-        ('P2', 'pressure2', 'pressure of state 2', float, False),
+        ('P2', 'pressure2', 'pressure of state 2 in MPa', float, False),
         ('T2', 'temperature2', 'temperature of state 2 in K (always in K)', float, False),
-        ('v2', 'molar_volume2', 'molar volume of state 2', float, False),
+        ('v2', 'molar_volume2', 'molar volume of state 2 in m3/mol', float, False),
         ('h2', 'enthalpy2', 'molar enthalpy of state 2 in J/mol', float, False),
         ('s2', 'entropy2', 'molar entropy of state 2 in J/mol-K', float, False),
         ('u2', 'internal_energy2', 'molar internal energy of state 2 in J/mol', float, False),
@@ -467,7 +312,7 @@ def cli():
 
     args = parser.parse_args()
 
-    if args.func == state:
+    if args.func == state_subcommand:
         nprops = 0
         for prop, _, _, _, _ in state_args:
             if hasattr(args, prop) and getattr(args, prop) is not None:

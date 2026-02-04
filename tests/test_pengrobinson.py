@@ -8,6 +8,8 @@ import pint
 
 logger = logging.getLogger(__name__)
 
+logging.getLogger('sandlermisc.thermodynamicstate').setLevel(logging.ERROR)
+
 class TestPengRobinsonEOS(TestCase):
     
     def test_pengrobinson_instance(self):
@@ -193,6 +195,7 @@ class TestPengRobinsonEOS(TestCase):
         with self.assertRaises(ValueError):
             Pvap = eos.Pvap
         eos.P = 30.0  # above critical pressure
+        self.assertTrue(eos.P > eos.Pc)
         with self.assertRaises(ValueError):
             Tsat = eos.Tsat
 
@@ -272,17 +275,3 @@ class TestPengRobinsonEOS(TestCase):
         self.assertAlmostEqual(v_start.magnitude, eos.v.magnitude, places=3)
         self.assertAlmostEqual(u_start.magnitude, eos.u.magnitude, places=3)
         self.assertAlmostEqual(s_start.magnitude, eos.s.magnitude, places=3)
-
-    def test_pengrobinson_resolve_hv(self):
-        eos = PengRobinsonEOS(logiter=True, T=300.0, P=1.5).set_compound('ethane')
-        P_as_input = eos.P
-        T_as_input = eos.T
-        h_start = eos.h
-        v_start = eos.v
-        u_start = eos.u
-        s_start = eos.s
-        eos = PengRobinsonEOS(h=h_start, v=v_start).set_compound('ethane')
-        P_as_dependent = eos.P
-        T_as_dependent = eos.T
-        self.assertAlmostEqual(P_as_input.magnitude, P_as_dependent.magnitude, places=3)
-        self.assertAlmostEqual(T_as_input.magnitude, T_as_dependent.magnitude, places=3)

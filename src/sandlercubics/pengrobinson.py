@@ -16,7 +16,8 @@ class PengRobinsonEOS(CubicEOS):
     """
 
     name: str = "Peng-Robinson Equation of State"
-
+    description: str = "Peng-Robinson Equation of State"
+    
     def _calc_kappa(self) -> float:
         """
         kappa parameter for Peng-Robinson EOS
@@ -88,6 +89,10 @@ class PengRobinsonEOS(CubicEOS):
         B = self.B
         num_arg = z + (1 + sqrt_2) * B
         den_arg = z + (1 - sqrt_2) * B
+        if num_arg * den_arg <= 0:
+            logger.warning(f'lrfrac: Invalid argument for logarithm: num_arg={num_arg}, den_arg={den_arg}. Returning NaN.')
+            logger.warning(f'lrfrac: z={z}, B={B} 1+sqrt(2)={1 + sqrt_2}, 1 - sqrt(2)={1 - sqrt_2}')
+            raise ValueError('Invalid argument for logarithm in lrfrac calculation.')
         return np.log(num_arg / den_arg)
         
     def _calc_h_departure(self) -> float:
