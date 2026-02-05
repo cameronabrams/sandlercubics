@@ -56,7 +56,9 @@ class CubicEOS(ThermodynamicState):
     """ heat capacity data for ideal-gas contributions """
 
     _PARAMETER_ORDERED_FIELDS = ['Tc', 'Pc', 'omega', 'Cp']
-
+    _PARAMETER_FIELDS = frozenset(_PARAMETER_ORDERED_FIELDS)
+    """ Fields that define parameters for the EOS; to be defined in subclasses """
+    
     Z: float = None
     """ compressibility factor """
 

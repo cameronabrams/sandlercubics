@@ -60,7 +60,7 @@ def state_subcommand(args):
         eos.omega = args.w
     if args.Cp is not None:
         eos.Cp = args.Cp
-    for p in 'TPhsuv':
+    for p in 'TPhsuvx':
         v = getattr(args, p, None)
         if v is not None:
             setattr(eos, p, v)
@@ -115,7 +115,7 @@ def delta_subcommand(args):
         eos1.Cp = args.Cp
         eos2.Cp = args.Cp
 
-    for p in 'TPhsuv':
+    for p in 'TPhsuvx':
         v = getattr(args, f'{p}1', None)
         if v is not None:
             setattr(eos1, p, v)

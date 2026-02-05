@@ -46,15 +46,15 @@ From the Command Line
 
 Output::
 
-   T     =   400 kelvin
-   P     =   0.5 megapascal
-   v     =  0.00662792 meter ** 3 / mole
-   s     = -2.23817 joule / kelvin / mole
-   h     =  3858.78 joule / mole
-   u     =  544.821 joule / mole
-   Pv    =  3313.96 joule / mole
-   Z     =  0.996444
-   Tsat  =  135.11 kelvin at 0.5 megapascal
+   T    =   400 kelvin
+   P    =   0.5 megapascal
+   v    =  0.00662792 meter ** 3 / mole
+   u    =  544.821 joule / mole
+   h    =  3858.78 joule / mole
+   s    = -2.23817 joule / kelvin / mole
+   Pv   =  3313.96 joule / mole
+   Z    =  0.996444
+   Tsat =  135.11 kelvin at 0.5 megapascal
 
 From Python
 ~~~~~~~~~~~
@@ -111,9 +111,9 @@ Output::
    T  =   350 kelvin                        T  =   400 kelvin
    P  =   7.5 megapascal                    P  =  15.5 megapascal
    v  =  0.000359369 meter ** 3 / mole      v  =  0.000204025 meter ** 3 / mole
-   s  = -32.095 joule / kelvin / mole       s  = -33.5449 joule / kelvin / mole
-   h  =  929.35 joule / mole                h  =  2501.21 joule / mole
    u  = -1765.92 joule / mole               u  = -661.182 joule / mole
+   h  =  929.35 joule / mole                h  =  2501.21 joule / mole
+   s  = -32.095 joule / kelvin / mole       s  = -33.5449 joule / kelvin / mole
    Pv =  2695.27 joule / mole               Pv =  3162.39 joule / mole
    Z  =  0.92619                            Z  =  0.950871
 
