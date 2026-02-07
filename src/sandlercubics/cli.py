@@ -1,6 +1,7 @@
 # Author: Cameron F. Abrams, <cfa22@drexel.edu>
-
+import logging
 import os
+import shutil
 import sys
 
 import argparse as ap
@@ -31,6 +32,24 @@ _\ \ (_| | | | | (_| | |  __/ |
     \___|\__,_|_.__/|_|\___|___/  v""" + version("sandlercubics") + """
 
 """
+
+logger = logging.getLogger(__name__)
+
+def setup_logging(args):    
+    loglevel_numeric = getattr(logging, args.log_level.upper())
+    if args.log:
+        if os.path.exists(args.log):
+            shutil.copyfile(args.log, args.log+'.bak')
+        logging.basicConfig(filename=args.log,
+                            filemode='w',
+                            format='%(asctime)s %(name)s %(message)s',
+                            level=loglevel_numeric
+        )
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(levelname)s> %(message)s')
+    console.setFormatter(formatter)
+    logging.getLogger('').addHandler(console)
 
 def state_subcommand(args):
     """
@@ -174,6 +193,20 @@ def cli():
         version=f'sandlercubics version {version("sandlercubics")}',
         help='show program version and exit'
     )
+    parser.add_argument(
+        '--log-level',
+        type=str,
+        default='debug',
+        choices=[None, 'info', 'debug', 'warning'],
+        help='Logging level for messages written to diagnostic log'
+    )
+    parser.add_argument(
+        '-l',
+        '--log',
+        type=str,
+        default='',
+        help='File to which diagnostic log messages are written'
+    )
     subparsers = parser.add_subparsers(
         title="subcommands",
         dest="command",
@@ -225,13 +258,6 @@ def cli():
         ('w', 'acentric_factor', 'acentric factor omega (if component not specified)', float, False),
     ]
 
-    cp_args = [
-        ('CpA', 'CpA', 'heat capacity coefficient A (J/mol-K) (if component not specified)', float, False),
-        ('CpB', 'CpB', 'heat capacity coefficient B (J/mol-K^2) (if component not specified)', float, False),
-        ('CpC', 'CpC', 'heat capacity coefficient C (J/mol-K^3) (if component not specified)', float, False),
-        ('CpD', 'CpD', 'heat capacity coefficient D (J/mol-K^4) (if component not specified)', float, False),
-    ]
-
     state_args = [
         ('P', 'pressure', 'pressure in MPa', float, False),
         ('T', 'temperature', 'temperature in K (always in K)', float, False),
@@ -239,6 +265,7 @@ def cli():
         ('h', 'enthalpy', 'molar enthalpy in J/mol', float, False),
         ('s', 'entropy', 'molar entropy in J/mol-K', float, False),
         ('u', 'internal_energy', 'molar internal energy in J/mol', float, False),
+        ('x', 'vapor_fraction', 'vapor fraction (dimensionless)', float, False),
     ]
     for prop, long_arg, explanation, arg_type, required in state_args + crit_args:
         command_parsers['state'].add_argument(
@@ -311,7 +338,7 @@ def cli():
     )
 
     args = parser.parse_args()
-
+    setup_logging(args)
     if args.func == state_subcommand:
         nprops = 0
         for prop, _, _, _, _ in state_args:

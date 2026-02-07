@@ -45,6 +45,8 @@ class CubicEOS(ThermodynamicState):
 
     name: str = 'cubic'
 
+    description: str = 'Cubic equations of state'
+
     Pc: pint.Quantity = None
     """ critical pressure """
     Tc: pint.Quantity = None
@@ -73,6 +75,8 @@ class CubicEOS(ThermodynamicState):
     """ maximum iterations in phase calculations """
     epsilon: float = 1.e-5
     """ fugacity tolerance in phase calculations (Fig. 7.5-1 in Sandler 5th ed) """
+    delT_adj: pint.Quantity = 5.0 * ureg.kelvin
+    """ temperature adjustment in K for phase calculations when root finding fails at initial T guess """
 
     @abstractmethod
     def _calc_P(self):
@@ -143,7 +147,7 @@ class CubicEOS(ThermodynamicState):
         else: 
             resolved = self._resolve_op_op()
         if not resolved:
-            raise ValueError(f'State {self.name}: Unable to resolve state with inputs: {statevars_speced}')
+            raise ValueError(f'State {self.name}: Unable to resolve state with inputs: {self.get_input_varnames()}')
         return resolved
 
     def _resolve_TP(self) -> bool:
@@ -174,7 +178,6 @@ class CubicEOS(ThermodynamicState):
             setattr(self, 'Z', Zlist[0])
         logger.debug(f'{self.__class__.__name__}._resolve_TP: T={self.T:.3f}, P={self.P:.3f} -> Z={self.Z:.6f}')
         return self._calculate_vhus()
-
 
     def _calculate_op(self, op: str) -> bool:
         """
@@ -238,7 +241,7 @@ class CubicEOS(ThermodynamicState):
 
     def _resolve_saturated_Tx(self) -> bool:
         if self.T > self.Tc:
-            raise ValueError(f'State {self.name}: Cannot have saturated state at temperature T={self.T} above critical temperature Tc={self.Tc}.')
+            raise ValueError(f'Cannot have saturated state at temperature T={self.T} above critical temperature Tc={self.Tc}.')
         self.P = self.Pvap
         if 0 < self.x < 1:
             self.Liquid = self.__class__(x=0.0, T=self.T, phase='liquid',
@@ -255,7 +258,7 @@ class CubicEOS(ThermodynamicState):
 
     def _resolve_saturated_Px(self) -> bool:
         if self.P > self.Pc:
-            raise ValueError(f'State {self.name}: Cannot have saturated state at pressure P={self.P} above critical pressure Pc={self.Pc}.')
+            raise ValueError(f'Cannot have saturated state at pressure P={self.P} above critical pressure Pc={self.Pc}.')
         self.T = self.Tsat
         if 0 < self.x < 1:
             self.Liquid = self.__class__(x=0.0, P=self.P, phase='liquid', name=f'{self.name}_L' if self.name else 'Saturated Liquid', Tc=self.Tc, Pc=self.Pc, omega=self.omega, Cp=self.Cp)
@@ -297,8 +300,8 @@ class CubicEOS(ThermodynamicState):
             r2 = residual(bounds[1])
             logger.debug(f'{self.__class__.__name__}._resolve_Top: iter {niter}, residual at bound1 {bounds[0]:.3f}: {r1:.3f}, residual at bound2 {bounds[1]:.3f}: {r2:.3f}')
             niter += 1
-            if niter > 20:
-                logger.debug(f'State {self.name}: Unable to bracket root for {op}={op_value_target:.3f} after {niter} iterations.')
+            if niter > self.maxiter:
+                logger.debug(f'Unable to bracket root for {op}={op_value_target:.3f} after {niter} iterations.')
                 bail = True
                 break
         if not bail:
@@ -334,13 +337,13 @@ class CubicEOS(ThermodynamicState):
         op = specs[0] if specs[1] == 'x' else specs[1]
         op_value = getattr(self, op)
         self.swap_input_vars(op, 'T')
-        bounds = (self.Tc.m_as(tunit)*0.3, self.Tc.m_as(tunit)*0.95)
-        def residual(T_guess):
+        def residual(T_guess: pint.Quantity):
             self.T = T_guess
             self._resolve_saturated_Tx()
             op_value_current = getattr(self, op)
             logger.debug(f'_resolve_saturated_opx: T_guess={T_guess:.3f}, op={op}, op_value_current={op_value_current:.3f}, op_value_target={op_value:.3f}')
             return op_value_current.m - op_value.m
+        bounds = (self.Tc.m_as(tunit)*0.3, self.Tc.m_as(tunit)*0.95)
         if op == 's':
             r1 = residual(bounds[0])
             r2 = residual(bounds[1])
@@ -350,7 +353,7 @@ class CubicEOS(ThermodynamicState):
                 r1 = residual(bounds[0])
                 r2 = residual(bounds[1])
                 niter += 1
-                if niter > 20:
+                if niter > self.maxiter:
                     raise ValueError(f'State {self.name}: Unable to bracket root for saturated {op}={op_value:.3f} after {niter} iterations.')
             logger.debug(f'_resolve_saturated_opx: Needed {niter} expansions of bounds to find sign change.')
         T_solution = brentq(residual, bounds[0], bounds[1], xtol=1e-6)
@@ -361,43 +364,43 @@ class CubicEOS(ThermodynamicState):
 
     def _resolve_op_op(self) -> bool:
         raise NotImplementedError('_resolve_op_op not implemented yet')
-        specs = self.get_input_varnames()
-        op1, op2 = specs[0], specs[1]
-        op1_value = getattr(self, op1)
-        op2_value = getattr(self, op2)
-        logger.debug(f'{self.__class__.__name__}._resolve_op_op: {op1} = {op1_value:.3f}, {op2} = {op2_value:.3f}')
+        # specs = self.get_input_varnames()
+        # op1, op2 = specs[0], specs[1]
+        # op1_value = getattr(self, op1)
+        # op2_value = getattr(self, op2)
+        # logger.debug(f'{self.__class__.__name__}._resolve_op_op: {op1} = {op1_value:.3f}, {op2} = {op2_value:.3f}')
 
-        self.swap_input_vars(op1, 'T')
-        bounds = (0.25 * self.Tc.m_as(self.get_default_unit('T')), self.Tc.m_as(self.get_default_unit('T'))*2.0)
-        def residual(T_guess):
-            self.T = T_guess
-            niter = 0
-            while not self._resolve_Top():
-                logger.debug(f'{self.__class__.__name__}._resolve_op_op: _resolve_Top failed at T={self.T:.3f}, trying next T guess.')
-                T_guess += 5.0
-                self.T = T_guess
-                niter += 1
-                if niter > 50:
-                    raise ValueError(f'State {self.name}: Unable to resolve state for {op1}={op1_value:.3f} after {niter} attempts adjusting T.')
-            op2_value_current = getattr(self, op2)
-            return op2_value_current.m - op2_value.m
-        r1 = residual(bounds[0])
-        r2 = residual(bounds[1])
-        niter = 0
-        while r1 * r2 > 0:
-            bounds = (bounds[0] + 10.0, bounds[1])
-            r1 = residual(bounds[0])
-            r2 = residual(bounds[1])
-            niter += 1
-            if niter > 20:
-                raise ValueError(f'State {self.name}: Unable to bracket root for saturated {op}={op_value:.3f} after {niter} iterations.')
-        logger.debug(f'_resolve_saturated_opx: Needed {niter} expansions of bounds to find sign change.')
-        T_solution = brentq(residual, bounds[0], bounds[1], xtol=1e-6)
-        self.T = T_solution
-        self._resolve_Top()
-        self.swap_input_vars('T', op1)
-        logger.debug(f'{self.__class__.__name__}._resolve_op_op: Resolved T = {self.T:.3f}, P = {self.P:.3f}')
-        return True
+        # self.swap_input_vars(op1, 'T')
+        # bounds = (0.25 * self.Tc.m_as(self.get_default_unit('T')), self.Tc.m_as(self.get_default_unit('T'))*2.0)
+        # def residual(T_guess: pint.Quantity):
+        #     self.T = T_guess
+        #     niter = 0
+        #     while not self._resolve_Top():
+        #         logger.debug(f'{self.__class__.__name__}._resolve_op_op: _resolve_Top failed at T={self.T:.3f}, trying next T guess.')
+        #         T_guess += self.delT_adj
+        #         self.T = T_guess
+        #         niter += 1
+        #         if niter > self.maxiter:
+        #             raise ValueError(f'State {self.name}: Unable to resolve state for {op1}={op1_value:.3f} after {niter} attempts adjusting T by {self.delT_adj}.')
+        #     op2_value_current = getattr(self, op2)
+        #     return op2_value_current.m - op2_value.m
+        # r1 = residual(bounds[0])
+        # r2 = residual(bounds[1])
+        # niter = 0
+        # while r1 * r2 > 0:
+        #     bounds = (bounds[0] + 10.0, bounds[1])
+        #     r1 = residual(bounds[0])
+        #     r2 = residual(bounds[1])
+        #     niter += 1
+        #     if niter > self.maxiter:
+        #         raise ValueError(f'State {self.name}: Unable to bracket root for saturated {op}={op_value:.3f} after {niter} iterations.')
+        # logger.debug(f'_resolve_saturated_opx: Needed {niter} expansions of bounds to find sign change.')
+        # T_solution = brentq(residual, bounds[0], bounds[1], xtol=1e-6)
+        # self.T = T_solution
+        # self._resolve_Top()
+        # self.swap_input_vars('T', op1)
+        # logger.debug(f'{self.__class__.__name__}._resolve_op_op: Resolved T = {self.T:.3f}, P = {self.P:.3f}')
+        # return True
 
     @abstractmethod
     def _calc_a(self):
