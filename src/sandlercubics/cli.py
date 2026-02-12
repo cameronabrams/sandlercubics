@@ -83,7 +83,7 @@ def state_subcommand(args):
         v = getattr(args, p, None)
         if v is not None:
             setattr(eos, p, v)
-    additional_vars = ['Z']
+    additional_vars = ['Z', 'h_departure',  's_departure']
     if eos.T < eos.Tc:
         additional_vars.extend(['Pvap', 'Hvap', 'Svap'])
     if eos.P < eos.Pc:
