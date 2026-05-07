@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.11.0] - 2026-05-07
 
-## [0.11.0]
-
 ### Added
 
 - Output of enthalpy and entropy departures.
